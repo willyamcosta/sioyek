@@ -389,8 +389,6 @@ tutorial/*.blg
 
 #Nix generated
 result
-flake*
-*.nix
 
 # ctags
 tags
