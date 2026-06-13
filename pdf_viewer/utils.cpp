@@ -1,6 +1,10 @@
 //#include <Windows.h>
 #include <cwctype>
 
+#ifdef SIOYEK_WEBP
+#include <webp/decode.h>
+#endif
+
 #ifdef SIOYEK_ANDROID
 #include <unistd.h>
 #endif
@@ -2797,6 +2801,44 @@ fz_document* open_document_with_file_name(fz_context* context, std::wstring file
     std::string file_name_str = utf8_encode(file_name);
     return fz_open_document_with_stream(context, file_name_str.c_str(), stream);
 #else
+#ifdef SIOYEK_WEBP
+    {
+        QString qpath = QString::fromStdWString(file_name);
+        if (qpath.toLower().endsWith(".webp")) {
+            QFile qfile(qpath);
+            if (qfile.open(QIODevice::ReadOnly)) {
+                QByteArray data = qfile.readAll();
+                qfile.close();
+
+                int width = 0, height = 0;
+                uint8_t* rgb = WebPDecodeRGB(
+                    reinterpret_cast<const uint8_t*>(data.constData()),
+                    static_cast<size_t>(data.size()),
+                    &width, &height);
+
+                if (rgb && width > 0 && height > 0) {
+                    fz_pixmap* pixmap = fz_new_pixmap(context, fz_device_rgb(context), width, height, nullptr, 0);
+                    for (int y = 0; y < height; y++) {
+                        memcpy(pixmap->samples + static_cast<size_t>(y) * pixmap->stride,
+                               rgb + static_cast<size_t>(y) * width * 3,
+                               static_cast<size_t>(width) * 3);
+                    }
+                    WebPFree(rgb);
+
+                    fz_buffer* png_buf = fz_new_buffer_from_pixmap_as_png(context, pixmap, fz_default_color_params);
+                    fz_drop_pixmap(context, pixmap);
+
+                    fz_document* doc = fz_open_document_with_buffer(context, "image.png", png_buf);
+                    fz_drop_buffer(context, png_buf);
+                    return doc;
+                }
+                if (rgb) WebPFree(rgb);
+            }
+        }
+    }
+
+#endif
+
     float epub_width, epub_height;
     get_path_epub_size(file_name, &epub_width, &epub_height);
 

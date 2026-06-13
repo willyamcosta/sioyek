@@ -8,12 +8,19 @@
   gumbo,
   harfbuzz,
   jbig2dec,
+  libwebp,
   mujs,
   mupdf,
   openjpeg,
   qt6,
 }:
-
+let
+  mupdf-with-webp = mupdf.overrideAttrs (old: {
+    buildInputs = (old.buildInputs or []) ++ [ libwebp ];
+    makeFlags = (old.makeFlags or []) ++ [ "XLIB_LDFLAGS=-lwebp" ];
+    patches = (old.patches or []) ++ [ ./patches/mupdf-cbz-webp.patch ];
+  });
+in
 stdenv.mkDerivation {
   pname = "sioyek";
   version = "2.0.0";
@@ -25,8 +32,9 @@ stdenv.mkDerivation {
       gumbo
       harfbuzz
       jbig2dec
+      libwebp
       mujs
-      mupdf
+      mupdf-with-webp
       openjpeg
       qt6.qt3d
       qt6.qtbase
@@ -51,7 +59,7 @@ stdenv.mkDerivation {
 
   postPatch = ''
     substituteInPlace pdf_viewer_build_config.pro \
-      --replace-fail "-lmupdf-threads" "-lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lopenjp2" \
+      --replace-fail "-lmupdf-threads" "-lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lopenjp2 -lwebp" \
       --replace-fail "-lmupdf-third" ""
 
     substituteInPlace pdf_viewer/main.cpp \

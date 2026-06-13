@@ -173,13 +173,14 @@ win32{
 unix:!mac:!android {
 
     QMAKE_CXXFLAGS += -std=c++17
+    DEFINES += SIOYEK_WEBP
 
     CONFIG(linux_app_image){
-        LIBS += -ldl -Lmupdf/build/release -lmupdf -lmupdf-third -lmupdf-threads -lharfbuzz -lz
+        LIBS += -ldl -Lmupdf/build/release -lmupdf -lmupdf-third -lmupdf-threads -lharfbuzz -lwebp -lz
     } else {
         DEFINES += NON_PORTABLE
         DEFINES += LINUX_STANDARD_PATHS
-        LIBS += -ldl -lmupdf -lmupdf-third -lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lmujs -lopenjp2 -lz
+        LIBS += -ldl -lmupdf -lmupdf-third -lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lmujs -lopenjp2 -lwebp -lz
     }
 
     isEmpty(PREFIX){
@@ -211,7 +212,8 @@ unix:!mac:!android {
 
 mac {
     QMAKE_CXXFLAGS += -std=c++17
-    LIBS += -ldl -L$$PWD/mupdf/build/release -lmupdf -lmupdf-third -lmupdf-threads -lz
+    DEFINES += SIOYEK_WEBP
+    LIBS += -ldl -L$$PWD/mupdf/build/release -lmupdf -lmupdf-third -lmupdf-threads -lwebp -lz
     CONFIG+=sdk_no_version_check
     QMAKE_MACOSX_DEPLOYMENT_TARGET = 15
     ICON = pdf_viewer\icon2.ico
