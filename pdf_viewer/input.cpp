@@ -4509,6 +4509,44 @@ public:
 
 };
 
+class OpenNextDocumentInFolderCommand : public Command {
+public:
+    static inline const std::string cname = "open_next_document_in_folder";
+    static inline const std::string hname = "Open next document in the current folder";
+    OpenNextDocumentInFolderCommand(MainWidget* w) : Command(cname, w) {};
+
+    void perform() {
+        int rp = num_repeats == 0 ? 1 : num_repeats;
+        for (int i = 0; i < rp; i++) {
+            if (!widget->open_adjacent_document_in_current_directory(true)) break;
+        }
+    }
+
+    bool pushes_state() {
+        return true;
+    }
+
+};
+
+class OpenPrevDocumentInFolderCommand : public Command {
+public:
+    static inline const std::string cname = "open_prev_document_in_folder";
+    static inline const std::string hname = "Open previous document in the current folder";
+    OpenPrevDocumentInFolderCommand(MainWidget* w) : Command(cname, w) {};
+
+    void perform() {
+        int rp = num_repeats == 0 ? 1 : num_repeats;
+        for (int i = 0; i < rp; i++) {
+            if (!widget->open_adjacent_document_in_current_directory(false)) break;
+        }
+    }
+
+    bool pushes_state() {
+        return true;
+    }
+
+};
+
 class ShowContextMenuCommand : public Command {
 public:
     static inline const std::string cname = "show_context_menu";
@@ -7182,6 +7220,8 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<ScreenUpCommand>();
     register_command<NextChapterCommand>();
     register_command<PrevChapterCommand>();
+    register_command<OpenNextDocumentInFolderCommand>();
+    register_command<OpenPrevDocumentInFolderCommand>();
     register_command<ShowContextMenuCommand>();
     register_command<ShowCustomContextMenuCommand>();
     register_command<ToggleDarkModeCommand>();

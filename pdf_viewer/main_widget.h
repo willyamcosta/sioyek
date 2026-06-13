@@ -209,6 +209,9 @@ public:
     // custom message to be displayed in sioyek's statusbar
     std::wstring custom_status_message = L"";
 
+    // Per-session positions for documents opened through adjacent-document navigation.
+    std::vector<DocumentViewState> adjacent_document_position_history;
+
     // A flag which indicates whether the application should quit. We use this to inform other threads
     // (e.g. the PDF rendering thread) that they should exit.
     bool* should_quit = nullptr;
@@ -543,6 +546,11 @@ public:
     void open_document_at_location(const Path& path, int page, std::optional<float> x_loc, std::optional<float> y_loc, std::optional<float> zoom_level);
     void open_document(const DocumentViewState& state);
     void open_document(const PortalViewState& checksum);
+    std::optional<Path> get_adjacent_document_in_current_directory(bool next);
+    void remember_adjacent_document_position();
+    std::optional<OpenedBookState> get_remembered_adjacent_document_position(const Path& path);
+    bool open_adjacent_document_in_current_directory(bool next);
+    bool maybe_open_adjacent_document_after_boundary_scroll(float scroll_amount, bool was_truncated);
     void validate_render();
     void validate_ui();
     void zoom(WindowPos pos, float zoom_factor, bool zoom_in);

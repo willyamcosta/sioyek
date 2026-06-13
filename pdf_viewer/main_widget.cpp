@@ -68,6 +68,11 @@
 #include <qtextdocumentfragment.h>
 #include <qmenubar.h>
 #include <qstylehints.h>
+#include <qcollator.h>
+#include <qdir.h>
+#include <qfileinfo.h>
+#include <qset.h>
+#include <algorithm>
 
 #include <mupdf/fitz.h>
 
@@ -217,6 +222,8 @@ extern bool SAME_WIDTH;
 extern bool KEYBOARD_SELECT_INCLUSIVE;
 extern bool SHOW_COMMAND_HINTS;
 extern bool RESTORE_ALL_WINDOWS_ON_STARTUP;
+extern bool AUTO_OPEN_ADJACENT_DOCUMENT;
+extern bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN;
 
 extern bool SIMPLIFY_FREEHAND_DRAWINGS;
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
@@ -1897,7 +1904,8 @@ bool MainWidget::move_document(float dx, float dy, bool force) {
 void MainWidget::move_document_screens(int num_screens) {
     int view_height = opengl_widget->height();
     float move_amount = num_screens * view_height * MOVE_SCREEN_PERCENTAGE;
-    move_document(0, move_amount);
+    bool truncated = move_document(0, move_amount);
+    maybe_open_adjacent_document_after_boundary_scroll(move_amount, truncated);
 }
 
 void MainWidget::on_config_file_changed(ConfigManager* new_config) {
@@ -2202,6 +2210,171 @@ void MainWidget::open_document_at_location(const Path& path_,
 void MainWidget::open_document(const DocumentViewState& state)
 {
     open_document(state.document_path, state.book_state.offset_x, state.book_state.offset_y, state.book_state.zoom_level);
+}
+
+namespace {
+
+bool is_supported_adjacent_document(const QFileInfo& info) {
+    if (!info.isFile()) return false;
+
+    const QString suffix = info.suffix().toLower();
+    static const QSet<QString> supported_suffixes = {
+        "pdf", "epub", "xps", "djv", "djvu", "fb2",
+        "cbz", "cbr", "cb7", "cbt",
+        "png", "jpg", "jpeg", "jpe", "jfif", "bmp", "gif", "tif", "tiff", "webp"
+    };
+    return supported_suffixes.contains(suffix);
+}
+
+QString normalized_file_path(const QFileInfo& info) {
+    QString canonical_path = info.canonicalFilePath();
+    if (!canonical_path.isEmpty()) return canonical_path;
+    return info.absoluteFilePath();
+}
+
+}
+
+std::optional<Path> MainWidget::get_adjacent_document_in_current_directory(bool next) {
+    if (!doc()) return {};
+
+    QFileInfo current_file_info(QString::fromStdWString(doc()->get_path()));
+    QDir parent_dir = current_file_info.dir();
+    QFileInfoList entries = parent_dir.entryInfoList(QDir::Files | QDir::NoSymLinks | QDir::Readable, QDir::NoSort);
+
+    std::vector<QFileInfo> files;
+    files.reserve(entries.size());
+    for (const QFileInfo& entry : entries) {
+        if (is_supported_adjacent_document(entry)) {
+            files.push_back(entry);
+        }
+    }
+
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+
+    std::stable_sort(files.begin(), files.end(), [&](const QFileInfo& a, const QFileInfo& b) {
+        int cmp = collator.compare(a.fileName(), b.fileName());
+        if (cmp != 0) return cmp < 0;
+        return normalized_file_path(a) < normalized_file_path(b);
+    });
+
+    const QString current_path = normalized_file_path(current_file_info);
+    auto current_it = std::find_if(files.begin(), files.end(), [&](const QFileInfo& candidate) {
+        return normalized_file_path(candidate) == current_path;
+    });
+
+    if (current_it == files.end()) return {};
+
+    if (next) {
+        ++current_it;
+        if (current_it == files.end()) return {};
+    }
+    else {
+        if (current_it == files.begin()) return {};
+        --current_it;
+    }
+
+    return Path(current_it->absoluteFilePath().toStdWString());
+}
+
+void MainWidget::remember_adjacent_document_position() {
+    if (!main_document_view_has_document()) return;
+
+    DocumentViewState state = main_document_view->get_state();
+    const std::wstring canonical_path = get_canonical_path(state.document_path);
+    if (canonical_path.empty()) return;
+
+    state.document_path = canonical_path;
+    adjacent_document_position_history.erase(
+        std::remove_if(
+            adjacent_document_position_history.begin(),
+            adjacent_document_position_history.end(),
+            [&](const DocumentViewState& existing_state) {
+                return get_canonical_path(existing_state.document_path) == canonical_path;
+            }),
+        adjacent_document_position_history.end());
+    adjacent_document_position_history.push_back(state);
+}
+
+std::optional<OpenedBookState> MainWidget::get_remembered_adjacent_document_position(const Path& path) {
+    const std::wstring canonical_path = get_canonical_path(path.get_path());
+    if (canonical_path.empty()) return {};
+
+    for (auto it = adjacent_document_position_history.rbegin(); it != adjacent_document_position_history.rend(); ++it) {
+        if (get_canonical_path(it->document_path) == canonical_path) {
+            return it->book_state;
+        }
+    }
+    return {};
+}
+
+bool MainWidget::open_adjacent_document_in_current_directory(bool next) {
+    if (!main_document_view_has_document()) return false;
+
+    std::optional<Path> adjacent_path = get_adjacent_document_in_current_directory(next);
+    if (!adjacent_path) {
+        return false;
+    }
+
+    remember_adjacent_document_position();
+
+    const bool preserve_zoom = PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN;
+    const float previous_zoom = main_document_view->get_zoom_level();
+    const float previous_offset_x = main_document_view->get_offset_x();
+    const std::optional<OpenedBookState> remembered_position = get_remembered_adjacent_document_position(adjacent_path.value());
+
+    std::optional<float> offset_x;
+    std::optional<float> offset_y;
+    std::optional<float> zoom_level;
+
+    if (remembered_position) {
+        offset_x = remembered_position->offset_x;
+        offset_y = remembered_position->offset_y;
+        zoom_level = remembered_position->zoom_level;
+    }
+    else if (preserve_zoom) {
+        offset_x = previous_offset_x;
+        zoom_level = previous_zoom;
+        if (next) {
+            offset_y = main_document_view->get_view_height() / (2.0f * previous_zoom);
+        }
+    }
+
+    open_document(adjacent_path.value(), offset_x, offset_y, zoom_level);
+
+    if (!main_document_view_has_document()) return false;
+
+    if (remembered_position) {
+        main_document_view->set_book_state(remembered_position.value());
+    }
+    else {
+        if (!next) {
+            main_document_view->goto_end();
+        }
+        else if (!preserve_zoom) {
+            main_document_view->set_offset_y(0.0f);
+        }
+
+        if (preserve_zoom) {
+            main_document_view->set_offset_x(previous_offset_x);
+            main_document_view->set_zoom_level(previous_zoom, true);
+        }
+    }
+
+    set_status_message(adjacent_path->filename().value_or(adjacent_path->get_path()));
+    invalidate_ui();
+    return true;
+}
+
+bool MainWidget::maybe_open_adjacent_document_after_boundary_scroll(float scroll_amount, bool was_truncated) {
+    if (!AUTO_OPEN_ADJACENT_DOCUMENT || !was_truncated || scroll_amount == 0.0f) return false;
+
+    std::optional<Path> adjacent_path = get_adjacent_document_in_current_directory(scroll_amount > 0.0f);
+    if (!adjacent_path) return false;
+
+    push_state();
+    return open_adjacent_document_in_current_directory(scroll_amount > 0.0f);
 }
 
 
@@ -4279,7 +4452,8 @@ void MainWidget::move_vertical(float amount) {
     }
 
     if (!smooth_scroll_mode) {
-        move_document(0, amount);
+        bool truncated = move_document(0, amount);
+        maybe_open_adjacent_document_after_boundary_scroll(amount, truncated);
         validate_render();
     }
     else {
@@ -11640,6 +11814,8 @@ QMenuBar* MainWidget::create_main_menu_bar(){
             new MenuNode { "goto_end", "", {} },
             new MenuNode { "screen_down", "", {} },
             new MenuNode { "screen_up", "", {} },
+            new MenuNode { "open_next_document_in_folder", "", {} },
+            new MenuNode { "open_prev_document_in_folder", "", {} },
             new MenuNode{ "-", "", {} },
             new MenuNode { "next_state", "", {} },
             new MenuNode { "prev_state", "", {} },
