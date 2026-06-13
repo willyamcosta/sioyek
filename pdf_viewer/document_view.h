@@ -25,6 +25,12 @@ class DatabaseManager;
 class DocumentManager;
 class ConfigManager;
 
+struct ContinuousDocumentPage {
+    Document* document = nullptr;
+    int page = 0;
+    std::wstring document_path;
+};
+
 
 class DocumentView {
 protected:
@@ -39,6 +45,9 @@ protected:
     //float offset_y = 0.0f;
     VirtualPos offset = {0, 0};
     std::vector<VirtualRect> cached_virtual_rects;
+    std::vector<ContinuousDocumentPage> continuous_document_pages;
+    std::wstring continuous_document_stack_anchor_path;
+    bool continuous_document_stack_dirty = true;
     bool two_page_mode = false;
 
     // absolute rect of the current ruler if this is {} then ruler_pos is used instead
@@ -132,6 +141,13 @@ public:
     NormalizedWindowPos absolute_to_window_pos(AbsoluteDocumentPos absolute_pos);
 
     void fill_cached_virtual_rects(bool force=false);
+    void invalidate_continuous_document_stack();
+    void rebuild_continuous_document_stack(bool force=false);
+    bool is_continuous_document_scroll_active();
+    Document* get_document_for_page(int page_number);
+    int get_local_page_for_page(int page_number);
+    std::wstring get_document_path_for_page(int page_number);
+    float get_current_document_stack_start_y();
     NormalizedWindowRect absolute_to_window_rect(AbsoluteRect doc_rect);
     NormalizedWindowPos document_to_window_pos(DocumentPos pos);
     WindowPos absolute_to_window_pos_in_pixels(AbsoluteDocumentPos abs_pos);

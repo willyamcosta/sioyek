@@ -1006,10 +1006,14 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
 
     if (!valid_document()) return;
 
+    Document* render_document = in_overview ? doc(true) : document_view->get_document_for_page(page_number);
+    int render_page_number = in_overview ? page_number : document_view->get_local_page_for_page(page_number);
+    if (!render_document) return;
+
     int nh, nv;
 
-    float page_width = doc(in_overview)->get_page_width(page_number);
-    float page_height = doc(in_overview)->get_page_height(page_number);
+    float page_width = render_document->get_page_width(render_page_number);
+    float page_height = render_document->get_page_height(render_page_number);
     PagelessDocumentRect page_rect({ 0, 0, page_width, page_height });
     if ((page_width < 0) || (page_height < 0)) return;
 
@@ -1038,8 +1042,8 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
         }
 
         // todo: just replace this with page_width and page_height from above
-        float slice_document_width = doc(in_overview)->get_page_width(page_number);
-        float slice_document_height = doc(in_overview)->get_page_height(page_number);
+        float slice_document_width = render_document->get_page_width(render_page_number);
+        float slice_document_height = render_document->get_page_height(render_page_number);
         PagelessDocumentRect slice_document_rect;
         slice_document_rect.x0 = 0;
         slice_document_rect.x1 = slice_document_width;
@@ -1063,9 +1067,9 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
             continue;
         }
 
-        GLuint texture = pdf_renderer->find_rendered_page(doc(in_overview)->get_path(),
-            page_number,
-            doc(in_overview)->should_render_pdf_annotations(),
+        GLuint texture = pdf_renderer->find_rendered_page(render_document->get_path(),
+            render_page_number,
+            render_document->should_render_pdf_annotations(),
             index,
             nh,
             nv,
@@ -1089,14 +1093,14 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
         }
 
         float page_vertices[4 * 2];
-        float slice_height = doc(in_overview)->get_page_height(page_number) / nv_;
-        float slice_width = doc(in_overview)->get_page_width(page_number) / nh_;
+        float slice_height = render_document->get_page_height(render_page_number) / nv_;
+        float slice_width = render_document->get_page_width(render_page_number) / nh_;
 
         PagelessDocumentRect page_rect;
         PagelessDocumentRect full_page_rect({ 0,
                 0,
-                 doc(in_overview)->get_page_width(page_number),
-                 doc(in_overview)->get_page_height(page_number)
+                 render_document->get_page_width(render_page_number),
+                 render_document->get_page_height(render_page_number)
         });
 
         WindowRect full_page_irect = fz_round_rect(fz_transform_rect(full_page_rect,
@@ -1224,7 +1228,7 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
 
         if ((get_current_color_mode() != Normal) && (PRESERVE_IMAGE_COLORS) && (!in_overview) && (forced_color_palette == ColorPalette::None) && (stencils_allowed)) {
             // render images in forced palette mode
-            fz_stext_page * stext_page = document_view->get_document()->get_stext_with_page_number(page_number);
+            fz_stext_page * stext_page = render_document->get_stext_with_page_number(render_page_number);
             std::vector<PagelessDocumentRect> image_rects;
             for (fz_stext_block* blk = stext_page->first_block; blk != nullptr; blk = blk->next) {
                 if (blk->type == FZ_STEXT_BLOCK_IMAGE) {
@@ -1262,9 +1266,9 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
 
             PagelessDocumentRect separator_rect({
                 0,
-                doc(in_overview)->get_page_height(page_number) - PAGE_SEPARATOR_WIDTH / 2,
-                doc(in_overview)->get_page_width(page_number),
-                doc(in_overview)->get_page_height(page_number) + PAGE_SEPARATOR_WIDTH / 2
+                render_document->get_page_height(render_page_number) - PAGE_SEPARATOR_WIDTH / 2,
+                render_document->get_page_width(render_page_number),
+                render_document->get_page_height(render_page_number) + PAGE_SEPARATOR_WIDTH / 2
                 });
 
 
@@ -1420,8 +1424,10 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                     1,
                     &link_highlight_color[0]);
                 glUniform1f(shared_gl_objects.highlight_opacity_uniform_location, 0.3f);
-                //fz_link* links = document_view->get_document()->get_page_links(page);
-                const std::vector<PdfLink>& links = document_view->get_document()->get_page_merged_pdf_links(page);
+                Document* link_document = document_view->get_document_for_page(page);
+                int link_page = document_view->get_local_page_for_page(page);
+                if (!link_document) continue;
+                const std::vector<PdfLink>& links = link_document->get_page_merged_pdf_links(link_page);
                 for (auto link : links) {
                     for (auto link_rect : link.rects) {
                         render_highlight_document(shared_gl_objects.highlight_program, { link_rect, page });
@@ -1437,29 +1443,32 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
         }
         // prerender pages
         if (visible_pages.size() > 0) {
-            int num_pages = document_view->get_document()->num_pages();
             int max_page = visible_pages[visible_pages.size() - 1];
             for (int i = 0; i < (PRERENDERED_PAGE_COUNT + 1); i++) {
-                if (max_page + i < num_pages) {
-                    float page_width = document_view->get_document()->get_page_width(max_page + i);
-                    float page_height = document_view->get_document()->get_page_height(max_page + i);
-                    PagelessDocumentRect page_rect({ 0, 0, page_width, page_height });
-                    int nh, nv;
-                    num_slices_for_page_rect(page_rect, &nh, &nv);
+                int virtual_page = max_page + i;
+                Document* prerender_document = document_view->get_document_for_page(virtual_page);
+                if (!prerender_document) continue;
+                int prerender_page = document_view->get_local_page_for_page(virtual_page);
+                if (prerender_page < 0 || prerender_page >= prerender_document->num_pages()) continue;
 
-                    for (int k = 0; k < nh * nv; k++) {
-                        pdf_renderer->find_rendered_page(
-                            document_view->get_document()->get_path(),
-                            max_page + i,
-                            document_view->get_document()->should_render_pdf_annotations(),
-                            k,
-                            nh,
-                            nv,
-                            document_view->get_zoom_level(),
-                            devicePixelRatioF(),
-                            nullptr,
-                            nullptr);
-                    }
+                float page_width = prerender_document->get_page_width(prerender_page);
+                float page_height = prerender_document->get_page_height(prerender_page);
+                PagelessDocumentRect page_rect({ 0, 0, page_width, page_height });
+                int nh, nv;
+                num_slices_for_page_rect(page_rect, &nh, &nv);
+
+                for (int k = 0; k < nh * nv; k++) {
+                    pdf_renderer->find_rendered_page(
+                        prerender_document->get_path(),
+                        prerender_page,
+                        prerender_document->should_render_pdf_annotations(),
+                        k,
+                        nh,
+                        nv,
+                        document_view->get_zoom_level(),
+                        devicePixelRatioF(),
+                        nullptr,
+                        nullptr);
                 }
             }
         }
@@ -1654,8 +1663,9 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
         }
         glEnable(GL_MULTISAMPLE);
         for (auto page : visible_pages) {
-
-            render_drawings(document_view, document_view->get_document()->get_page_drawings(page));
+            Document* drawing_document = document_view->get_document_for_page(page);
+            if (!drawing_document) continue;
+            render_drawings(document_view, drawing_document->get_page_drawings(document_view->get_local_page_for_page(page)));
         }
         render_drawings(document_view, moving_drawings, true);
         render_drawings(document_view, moving_drawings, false);

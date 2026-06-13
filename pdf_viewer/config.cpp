@@ -176,6 +176,7 @@ bool INVERT_SELECTED_TEXT = false;
 bool IGNORE_SCROLL_EVENTS = false;
 bool AUTO_OPEN_ADJACENT_DOCUMENT = false;
 bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN = true;
+bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL = false;
 
 #ifdef SIOYEK_MOBILE
 std::wstring STARTUP_COMMANDS = L"toggle_mouse_drag_mode;toggle_fullscreen";
@@ -974,6 +975,7 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_bool(L"ignore_scroll_events", &IGNORE_SCROLL_EVENTS);
     add_bool(L"auto_open_adjacent_document", &AUTO_OPEN_ADJACENT_DOCUMENT);
     add_bool(L"preserve_zoom_on_adjacent_document_open", &PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN);
+    add_bool(L"continuous_adjacent_document_scroll", &CONTINUOUS_ADJACENT_DOCUMENT_SCROLL);
     add_bool(L"dont_center_if_synctex_rect_is_visible", &DONT_FOCUS_IF_SYNCTEX_RECT_IS_VISIBLE);
     add_bool(L"gg_uses_labels", &GG_USES_LABELS);
     add_bool(L"should_use_multiple_monitors", &SHOULD_USE_MULTIPLE_MONITORS);

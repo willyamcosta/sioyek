@@ -1,4 +1,10 @@
 #include <cmath>
+#include <cfloat>
+
+#include <qcollator.h>
+#include <qdir.h>
+#include <qfileinfo.h>
+#include <qset.h>
 
 #include "document_view.h"
 #include "checksum.h"
@@ -27,6 +33,7 @@ extern bool SAME_WIDTH;
 extern bool SCROLL_PAST_DOCUMENT_ENDS;
 extern bool HORIZONTAL_SCROLL_PAST_PAGE_ENDS;
 extern bool RECTO_VERSO_ADJUSTMENT;
+extern bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL;
 
 DocumentView::DocumentView(DatabaseManager* db_manager,
     DocumentManager* document_manager,
@@ -123,6 +130,35 @@ bool DocumentView::set_offsets(float new_offset_x, float new_offset_y, bool forc
 
     int num_pages = current_document->num_pages();
     if (num_pages == 0) return false;
+
+    if (is_continuous_document_scroll_active()) {
+        fill_cached_virtual_rects();
+        VirtualPos new_offset = absolute_to_virtual_pos(AbsoluteDocumentPos{ new_offset_x, new_offset_y });
+        bool truncated = false;
+
+        if (!force && cached_virtual_rects.size() > 0 && !needs_refill) {
+            float halfwidth = view_width / 2 / zoom_level;
+            float halfheight = !SCROLL_PAST_DOCUMENT_ENDS ? view_height / 2 / zoom_level : 0;
+
+            float original_x = new_offset.x;
+            float original_y = new_offset.y;
+
+            if (min_virtual_x + halfwidth > 0 && max_virtual_x - halfwidth < 0) {
+                new_offset.x = 0;
+            }
+            else {
+                new_offset.x = std::max(min_virtual_x + halfwidth, new_offset.x);
+                new_offset.x = std::min(max_virtual_x - halfwidth, new_offset.x);
+            }
+
+            new_offset.y = std::min(max_virtual_y - halfheight, new_offset.y);
+            new_offset.y = std::max(halfheight, new_offset.y);
+            truncated = !are_same(original_x, new_offset.x) || !are_same(original_y, new_offset.y);
+        }
+
+        offset = new_offset;
+        return truncated;
+    }
 
     float halfscreen_offset = !SCROLL_PAST_DOCUMENT_ENDS ? view_height / 2 / zoom_level : 0;
     float max_y_offset = current_document->get_accum_page_height(num_pages - 1) + current_document->get_page_height(num_pages - 1) - halfscreen_offset;
@@ -711,6 +747,158 @@ int DocumentView::get_center_page_number() {
     }
 }
 
+
+namespace {
+
+bool is_supported_continuous_document_entry(const QFileInfo& info) {
+    if (!info.isFile()) return false;
+
+    const QString suffix = info.suffix().toLower();
+    static const QSet<QString> supported_suffixes = {
+        "pdf", "epub", "xps", "djv", "djvu", "fb2",
+        "cbz", "cbr", "cb7", "cbt",
+        "png", "jpg", "jpeg", "jpe", "jfif", "bmp", "gif", "tif", "tiff", "webp"
+    };
+    return supported_suffixes.contains(suffix);
+}
+
+QString normalized_continuous_document_path(const QFileInfo& info) {
+    QString canonical_path = info.canonicalFilePath();
+    if (!canonical_path.isEmpty()) return canonical_path;
+    return info.absoluteFilePath();
+}
+
+}
+
+void DocumentView::invalidate_continuous_document_stack() {
+    continuous_document_stack_dirty = true;
+    continuous_document_pages.clear();
+    continuous_document_stack_anchor_path.clear();
+}
+
+bool DocumentView::is_continuous_document_scroll_active() {
+    return CONTINUOUS_ADJACENT_DOCUMENT_SCROLL && current_document != nullptr && !is_presentation_mode() && !two_page_mode;
+}
+
+void DocumentView::rebuild_continuous_document_stack(bool force) {
+    if (!is_continuous_document_scroll_active()) {
+        continuous_document_pages.clear();
+        continuous_document_stack_anchor_path.clear();
+        continuous_document_stack_dirty = false;
+        return;
+    }
+
+    std::wstring current_path = get_canonical_path(current_document->get_path());
+    if (current_path.empty()) {
+        current_path = current_document->get_path();
+    }
+
+    if (!force && !continuous_document_stack_dirty && continuous_document_stack_anchor_path == current_path) {
+        return;
+    }
+
+    continuous_document_pages.clear();
+    continuous_document_stack_anchor_path = current_path;
+    continuous_document_stack_dirty = false;
+
+    QFileInfo current_file_info(QString::fromStdWString(current_document->get_path()));
+    QDir parent_dir = current_file_info.dir();
+    QFileInfoList entries = parent_dir.entryInfoList(QDir::Files | QDir::NoSymLinks | QDir::Readable, QDir::NoSort);
+
+    std::vector<QFileInfo> files;
+    files.reserve(entries.size());
+    for (const QFileInfo& entry : entries) {
+        if (is_supported_continuous_document_entry(entry)) {
+            files.push_back(entry);
+        }
+    }
+
+    QCollator collator;
+    collator.setNumericMode(true);
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+
+    std::stable_sort(files.begin(), files.end(), [&](const QFileInfo& a, const QFileInfo& b) {
+        int cmp = collator.compare(a.fileName(), b.fileName());
+        if (cmp != 0) return cmp < 0;
+        return normalized_continuous_document_path(a) < normalized_continuous_document_path(b);
+    });
+
+    const QString current_qpath = normalized_continuous_document_path(current_file_info);
+    auto current_it = std::find_if(files.begin(), files.end(), [&](const QFileInfo& candidate) {
+        return normalized_continuous_document_path(candidate) == current_qpath;
+    });
+
+    if (current_it == files.end()) {
+        for (int page = 0; page < current_document->num_pages(); page++) {
+            continuous_document_pages.push_back({ current_document, page, current_document->get_path() });
+        }
+        return;
+    }
+
+    for (int file_index = 0; file_index < static_cast<int>(files.size()); file_index++) {
+        const QFileInfo& info = files[file_index];
+        std::wstring file_path = normalized_continuous_document_path(info).toStdWString();
+        if (file_path.empty()) {
+            file_path = info.absoluteFilePath().toStdWString();
+        }
+
+        Document* document = nullptr;
+        if (get_canonical_path(file_path) == current_path) {
+            document = current_document;
+        }
+        else {
+            document = document_manager->get_document(file_path);
+            if (!document->open(nullptr, true)) {
+                continue;
+            }
+        }
+
+        const int page_count = document->num_pages();
+        for (int page = 0; page < page_count; page++) {
+            continuous_document_pages.push_back({ document, page, file_path });
+        }
+    }
+}
+
+Document* DocumentView::get_document_for_page(int page_number) {
+    if (is_continuous_document_scroll_active()) {
+        rebuild_continuous_document_stack();
+        if (page_number >= 0 && page_number < static_cast<int>(continuous_document_pages.size())) {
+            return continuous_document_pages[page_number].document;
+        }
+    }
+    return current_document;
+}
+
+int DocumentView::get_local_page_for_page(int page_number) {
+    if (is_continuous_document_scroll_active()) {
+        rebuild_continuous_document_stack();
+        if (page_number >= 0 && page_number < static_cast<int>(continuous_document_pages.size())) {
+            return continuous_document_pages[page_number].page;
+        }
+    }
+    return page_number;
+}
+
+std::wstring DocumentView::get_document_path_for_page(int page_number) {
+    Document* document = get_document_for_page(page_number);
+    if (!document) return L"";
+    return document->get_path();
+}
+
+float DocumentView::get_current_document_stack_start_y() {
+    if (!is_continuous_document_scroll_active()) return 0.0f;
+
+    fill_cached_virtual_rects();
+    for (int i = 0; i < static_cast<int>(continuous_document_pages.size()) && i < static_cast<int>(cached_virtual_rects.size()); i++) {
+        const ContinuousDocumentPage& page_entry = continuous_document_pages[i];
+        if (page_entry.document == current_document) {
+            return cached_virtual_rects[i].y0 - current_document->get_accum_page_height(page_entry.page);
+        }
+    }
+    return 0.0f;
+}
+
 void DocumentView::get_visible_pages(int window_height, std::vector<int>& visible_pages) {
     if (!current_document) return;
 
@@ -759,6 +947,7 @@ void DocumentView::reset_doc_state() {
     presentation_page_number = {};
     cached_virtual_rects.clear();
     same_width_mode_first_page_width = {};
+    invalidate_continuous_document_stack();
 }
 
 void DocumentView::open_document(const std::wstring& doc_path,
@@ -1979,6 +2168,9 @@ bool DocumentView::is_presentation_mode() {
 }
 
 VirtualPos DocumentView::absolute_to_virtual_pos(const AbsoluteDocumentPos& abspos) {
+    if (is_continuous_document_scroll_active()) {
+        return VirtualPos{ abspos.x, get_current_document_stack_start_y() + abspos.y };
+    }
     if (fast_coordinates()) {
         return VirtualPos{ abspos.x, abspos.y };
     }
@@ -1993,6 +2185,17 @@ VirtualPos DocumentView::absolute_to_virtual_pos(const AbsoluteDocumentPos& absp
 }
 
 VirtualPos DocumentView::document_to_virtual_pos(DocumentPos docpos) {
+    if (is_continuous_document_scroll_active()) {
+        fill_cached_virtual_rects();
+        if (docpos.page >= 0 && docpos.page < static_cast<int>(cached_virtual_rects.size())) {
+            VirtualRect page_virtual_rect = cached_virtual_rects[docpos.page];
+            VirtualPos pos = page_virtual_rect.top_left();
+            pos.x += docpos.x;
+            pos.y += docpos.y;
+            return pos;
+        }
+        return { docpos.x, docpos.y };
+    }
     if (fast_coordinates()) {
         AbsoluteDocumentPos abspos = docpos.to_absolute(current_document);
         return { abspos.x, abspos.y };
@@ -2013,6 +2216,9 @@ VirtualPos DocumentView::document_to_virtual_pos(DocumentPos docpos) {
 }
 
 AbsoluteDocumentPos DocumentView::virtual_to_absolute_pos(const VirtualPos& vpos) {
+    if (is_continuous_document_scroll_active()) {
+        return AbsoluteDocumentPos{ vpos.x, vpos.y - get_current_document_stack_start_y() };
+    }
     if (fast_coordinates()) {
         return AbsoluteDocumentPos{ vpos.x, vpos.y };
     }
@@ -2061,6 +2267,63 @@ AbsoluteDocumentPos DocumentView::virtual_to_absolute_pos(const VirtualPos& vpos
 void DocumentView::fill_cached_virtual_rects(bool force) {
     if (!current_document) return;
 
+    if (is_continuous_document_scroll_active()) {
+        rebuild_continuous_document_stack(force);
+
+        bool page_dims_are_loaded = true;
+        for (const ContinuousDocumentPage& page_entry : continuous_document_pages) {
+            if (!page_entry.document || !page_entry.document->can_use_highlights()) {
+                page_dims_are_loaded = false;
+                break;
+            }
+        }
+
+        if (!page_dims_are_loaded) {
+            needs_refill = true;
+        }
+        else {
+            if (needs_refill) {
+                force = true;
+            }
+            needs_refill = false;
+        }
+
+        if ((cached_virtual_rects.size() == 0) || force) {
+            cached_virtual_rects.clear();
+            same_width_mode_first_page_width = {};
+
+            float cum_offset = 0;
+            for (const ContinuousDocumentPage& page_entry : continuous_document_pages) {
+                if (!page_entry.document) continue;
+
+                float page_width = page_entry.document->get_page_width(page_entry.page);
+                float page_height = page_entry.document->get_page_height(page_entry.page);
+                if ((page_width < 0) || (page_height < 0)) continue;
+
+                VirtualRect page_rect;
+                page_rect.x0 = -page_width / 2;
+                page_rect.x1 = page_width / 2;
+                page_rect.y0 = cum_offset;
+                page_rect.y1 = cum_offset + page_height;
+                cached_virtual_rects.push_back(page_rect);
+
+                cum_offset += page_height + page_space_y;
+            }
+        }
+
+        if (!needs_refill) {
+            min_virtual_x = FLT_MAX;
+            max_virtual_x = -FLT_MAX;
+            max_virtual_y = -FLT_MAX;
+
+            for (auto r : cached_virtual_rects) {
+                min_virtual_x = std::min(min_virtual_x, r.x0);
+                max_virtual_x = std::max(max_virtual_x, r.x1);
+                max_virtual_y = std::max(max_virtual_y, r.y1);
+            }
+        }
+        return;
+    }
 
     bool page_dims_are_loaded = current_document->can_use_highlights();
     if (!page_dims_are_loaded) {
@@ -2218,5 +2481,5 @@ float DocumentView::get_page_space_y() {
 }
 
 bool DocumentView::fast_coordinates() {
-    return (!two_page_mode) && (!REAL_PAGE_SEPARATION) && (!SAME_WIDTH);
+    return (!is_continuous_document_scroll_active()) && (!two_page_mode) && (!REAL_PAGE_SEPARATION) && (!SAME_WIDTH);
 }

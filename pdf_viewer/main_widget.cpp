@@ -224,6 +224,7 @@ extern bool SHOW_COMMAND_HINTS;
 extern bool RESTORE_ALL_WINDOWS_ON_STARTUP;
 extern bool AUTO_OPEN_ADJACENT_DOCUMENT;
 extern bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN;
+extern bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL;
 
 extern bool SIMPLIFY_FREEHAND_DRAWINGS;
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
@@ -2368,6 +2369,7 @@ bool MainWidget::open_adjacent_document_in_current_directory(bool next) {
 }
 
 bool MainWidget::maybe_open_adjacent_document_after_boundary_scroll(float scroll_amount, bool was_truncated) {
+    if (CONTINUOUS_ADJACENT_DOCUMENT_SCROLL) return false;
     if (!AUTO_OPEN_ADJACENT_DOCUMENT || !was_truncated || scroll_amount == 0.0f) return false;
 
     std::optional<Path> adjacent_path = get_adjacent_document_in_current_directory(scroll_amount > 0.0f);
