@@ -2,6 +2,67 @@
 
 Sioyek is a PDF viewer with a focus on textbooks and research papers.
 
+# Fork changes
+
+This is a personal fork of sioyek with the following additions on top of the upstream `development` branch. Everything is off by default and opt-in through `prefs_user.config`.
+
+## Adjacent document navigation
+
+Open the next/previous document in the current folder without going through the file picker. Files are ordered by natural (numeric-aware) filename sort, so `chapter2.pdf` comes before `chapter10.pdf`. Useful for collections split across many files.
+
+Commands (bind them in `keys_user.config`):
+
+```
+open_next_document_in_folder <A-.>
+open_prev_document_in_folder <A-,>
+```
+
+Relevant options (with defaults):
+
+```
+auto_open_adjacent_document                  0   # jump to the next/prev file when you scroll past a boundary
+preserve_zoom_on_adjacent_document_open      1   # keep zoom/horizontal offset across documents
+```
+
+Per-session position memory: when you leave a document via this navigation, sioyek remembers where you were and restores it if you come back during the same session.
+
+Supported file types: pdf, epub, xps, djv(u), fb2, cbz/cbr/cb7/cbt, and common image formats (png, jpg/jpeg, bmp, gif, tif(f), webp, ...).
+
+## Continuous scrolling across adjacent documents
+
+```
+continuous_adjacent_document_scroll   0
+```
+
+When enabled, all supported documents in the current folder are stitched into a single continuous scroll, so scrolling off the end of one file flows straight into the next.
+
+**Caveats:**
+
+- Enabling this **eagerly opens every supported document in the folder** to build the combined page stack. In a folder with many or large files this costs noticeable memory and load time. It is off by default for this reason — keep it off for large folders.
+- It is mutually exclusive with `auto_open_adjacent_document` (continuous scroll takes precedence).
+- It disables the fast-coordinates path, so it interacts with two-page mode, selection, links and synctex; treat it as experimental.
+
+## WebP image support
+
+sioyek can open `.webp` images and CBZ archives that contain WebP pages. There are two independent pieces:
+
+- **Standalone `.webp` files** are decoded inside sioyek (libwebp → PNG), so they work on any build compiled with `SIOYEK_WEBP` and linked against `-lwebp` (the Linux and macOS qmake builds and the Nix package).
+- **WebP embedded inside CBZ** archives requires patching mupdf's `source/cbz/mucbz.c` (see `patches/mupdf-cbz-webp.patch`).
+
+**Caveats:**
+
+- The mupdf CBZ patch is only applied automatically by the **Nix** build (`package.nix` adds it via `mupdf.overrideAttrs`). On other builds, standalone `.webp` works but CBZ-embedded WebP does **not**, unless you apply `patches/mupdf-cbz-webp.patch` to the mupdf you link against.
+- The Windows build is not wired for WebP at all (no `SIOYEK_WEBP`, no `-lwebp`).
+- Decoding uses `WebPDecodeRGB`, so the alpha channel is dropped — transparent WebP images render as opaque.
+
+## Nix packaging
+
+A `flake.nix` / `package.nix` build is included. It builds sioyek against a WebP-patched mupdf, so both standalone and CBZ WebP work out of the box:
+
+```
+nix build
+```
+
 # Development Branch FAQ
 
 ## Q: There are build errors with Qt 5.*.
