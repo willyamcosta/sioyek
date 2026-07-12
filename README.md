@@ -36,6 +36,8 @@ continuous_adjacent_document_scroll   0
 
 When enabled, all supported documents in the current folder are stitched into a single continuous scroll, so scrolling off the end of one file flows straight into the next.
 
+As you scroll across a file boundary, the viewer **adopts the document under the viewport as the active document**: the window title, page counter (`current page / that file's page count`), navigation history and saved position all follow the file you are actually looking at. Because the position is saved per file, reopening later restores you to the right document and page — even with continuous scroll disabled — and each file you pass through is recorded in your history and recent files. A status message announces each file as you enter it.
+
 **Caveats:**
 
 - Enabling this **eagerly opens every supported document in the folder** to build the combined page stack. In a folder with many or large files this costs noticeable memory and load time. It is off by default for this reason — keep it off for large folders.

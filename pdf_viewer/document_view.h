@@ -148,6 +148,8 @@ public:
     int get_local_page_for_page(int page_number);
     std::wstring get_document_path_for_page(int page_number);
     float get_current_document_stack_start_y();
+    int get_center_virtual_page();
+    void set_current_subdocument(Document* doc);
     NormalizedWindowRect absolute_to_window_rect(AbsoluteRect doc_rect);
     NormalizedWindowPos document_to_window_pos(DocumentPos pos);
     WindowPos absolute_to_window_pos_in_pixels(AbsoluteDocumentPos abs_pos);
