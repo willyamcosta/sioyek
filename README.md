@@ -53,7 +53,7 @@ sioyek can open `.webp` images and CBZ archives that contain WebP pages. There a
 
 - The mupdf CBZ patch is only applied automatically by the **Nix** build (`package.nix` adds it via `mupdf.overrideAttrs`). On other builds, standalone `.webp` works but CBZ-embedded WebP does **not**, unless you apply `patches/mupdf-cbz-webp.patch` to the mupdf you link against.
 - The Windows build is not wired for WebP at all (no `SIOYEK_WEBP`, no `-lwebp`).
-- Decoding uses `WebPDecodeRGB`, so the alpha channel is dropped — transparent WebP images render as opaque.
+- Transparency is preserved: decoding uses `WebPDecodeRGBA` and premultiplies alpha before handing the pixmap to mupdf.
 
 ## Nix packaging
 
