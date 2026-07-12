@@ -899,6 +899,33 @@ float DocumentView::get_current_document_stack_start_y() {
     return 0.0f;
 }
 
+int DocumentView::get_center_virtual_page() {
+    if (!is_continuous_document_scroll_active()) {
+        return get_center_page_number();
+    }
+
+    fill_cached_virtual_rects();
+    if (cached_virtual_rects.size() == 0) return 0;
+
+    // offset is the center of the viewport in virtual coordinates.
+    float center_y = offset.y;
+    for (int i = 0; i < static_cast<int>(cached_virtual_rects.size()); i++) {
+        if (center_y < cached_virtual_rects[i].y1) return i;
+    }
+    return static_cast<int>(cached_virtual_rects.size()) - 1;
+}
+
+void DocumentView::set_current_subdocument(Document* doc) {
+    if (!doc || doc == current_document) return;
+
+    // Repoint the active document to the sub-document under the viewport. The
+    // stored offset is in virtual coordinates, so the on-screen position does
+    // not move: virtual_to_absolute now measures against the new document's
+    // start in the stack (see get_current_document_stack_start_y). The stack is
+    // keyed on the anchor path and will be rebuilt (identically) on next fill.
+    current_document = doc;
+}
+
 void DocumentView::get_visible_pages(int window_height, std::vector<int>& visible_pages) {
     if (!current_document) return;
 

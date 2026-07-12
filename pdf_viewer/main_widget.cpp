@@ -1865,6 +1865,7 @@ void MainWidget::validate_render() {
             helper_document_view()->set_null_document();
         }
     }
+    synchronize_continuous_scroll_subdocument();
     validate_ui();
     update();
     if (opengl_widget != nullptr) {
@@ -2377,6 +2378,50 @@ bool MainWidget::maybe_open_adjacent_document_after_boundary_scroll(float scroll
 
     push_state();
     return open_adjacent_document_in_current_directory(scroll_amount > 0.0f);
+}
+
+void MainWidget::synchronize_continuous_scroll_subdocument() {
+    // In continuous-scroll mode the whole folder is stitched into one virtual
+    // page stack, but only the renderer is aware of it: current_document (which
+    // drives the window title, page counter, saved position, history and
+    // recent-files) stays pinned to the file that was opened. Here we detect
+    // when the viewport center has crossed into a different sub-document and
+    // adopt it as the active document, so all of that bookkeeping follows what
+    // the user is actually looking at.
+    if (!main_document_view_has_document()) return;
+    if (!main_document_view->is_continuous_document_scroll_active()) return;
+
+    int center_virtual_page = main_document_view->get_center_virtual_page();
+    Document* sub_document = main_document_view->get_document_for_page(center_virtual_page);
+    if (!sub_document || sub_document == main_document_view->get_document()) return;
+
+    const std::wstring new_path = sub_document->get_path();
+
+    // Adopt the sub-document under the viewport. The virtual offset is
+    // preserved, so the on-screen position does not jump.
+    main_document_view->set_current_subdocument(sub_document);
+
+    document_manager->add_tab(new_path);
+
+    std::optional<std::wstring> file_name = Path(new_path).filename();
+    if (file_name && file_name->size() > 0) {
+        setWindowTitle(QString::fromStdWString(file_name.value()));
+    }
+
+    int num_pages = main_document_view->get_document()->num_pages();
+    if (num_pages > 0) {
+        scroll_bar->setSingleStep(std::max(MAX_SCROLLBAR / num_pages / 10, 1));
+        scroll_bar->setPageStep(MAX_SCROLLBAR / num_pages);
+    }
+    update_scrollbar();
+
+    // Persist the new position so reopening restores to this chapter (even with
+    // continuous scroll disabled), and record it in navigation history.
+    main_document_view->persist(false);
+    push_state();
+
+    last_smart_fit_page = {};
+    set_status_message(file_name.value_or(new_path));
 }
 
 
