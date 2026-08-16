@@ -173,7 +173,6 @@ win32{
 unix:!mac:!android {
 
     QMAKE_CXXFLAGS += -std=c++17
-    DEFINES += SIOYEK_WEBP
 
     CONFIG(linux_app_image){
         LIBS += -ldl -Lmupdf/build/release -lmupdf -lmupdf-third -lmupdf-threads -lharfbuzz -lwebp -lz
@@ -212,7 +211,6 @@ unix:!mac:!android {
 
 mac {
     QMAKE_CXXFLAGS += -std=c++17
-    DEFINES += SIOYEK_WEBP
     LIBS += -ldl -L$$PWD/mupdf/build/release -lmupdf -lmupdf-third -lmupdf-threads -lwebp -lz
     CONFIG+=sdk_no_version_check
     QMAKE_MACOSX_DEPLOYMENT_TARGET = 15

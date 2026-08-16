@@ -1,10 +1,6 @@
 //#include <Windows.h>
 #include <cwctype>
 
-#ifdef SIOYEK_WEBP
-#include <webp/decode.h>
-#endif
-
 #ifdef SIOYEK_ANDROID
 #include <unistd.h>
 #endif
@@ -2801,53 +2797,6 @@ fz_document* open_document_with_file_name(fz_context* context, std::wstring file
     std::string file_name_str = utf8_encode(file_name);
     return fz_open_document_with_stream(context, file_name_str.c_str(), stream);
 #else
-#ifdef SIOYEK_WEBP
-    {
-        QString qpath = QString::fromStdWString(file_name);
-        if (qpath.toLower().endsWith(".webp")) {
-            QFile qfile(qpath);
-            if (qfile.open(QIODevice::ReadOnly)) {
-                QByteArray data = qfile.readAll();
-                qfile.close();
-
-                int width = 0, height = 0;
-                uint8_t* rgba = WebPDecodeRGBA(
-                    reinterpret_cast<const uint8_t*>(data.constData()),
-                    static_cast<size_t>(data.size()),
-                    &width, &height);
-
-                if (rgba && width > 0 && height > 0) {
-                    // fz_device_rgb + alpha=1 gives an RGBA pixmap. WebP returns
-                    // straight (unassociated) alpha, but mupdf pixmaps store
-                    // premultiplied alpha, so premultiply while copying.
-                    fz_pixmap* pixmap = fz_new_pixmap(context, fz_device_rgb(context), width, height, nullptr, 1);
-                    for (int y = 0; y < height; y++) {
-                        const uint8_t* src = rgba + static_cast<size_t>(y) * width * 4;
-                        uint8_t* dst = pixmap->samples + static_cast<size_t>(y) * pixmap->stride;
-                        for (int x = 0; x < width; x++) {
-                            unsigned int a = src[x * 4 + 3];
-                            dst[x * 4 + 0] = static_cast<uint8_t>(src[x * 4 + 0] * a / 255);
-                            dst[x * 4 + 1] = static_cast<uint8_t>(src[x * 4 + 1] * a / 255);
-                            dst[x * 4 + 2] = static_cast<uint8_t>(src[x * 4 + 2] * a / 255);
-                            dst[x * 4 + 3] = static_cast<uint8_t>(a);
-                        }
-                    }
-                    WebPFree(rgba);
-
-                    fz_buffer* png_buf = fz_new_buffer_from_pixmap_as_png(context, pixmap, fz_default_color_params);
-                    fz_drop_pixmap(context, pixmap);
-
-                    fz_document* doc = fz_open_document_with_buffer(context, "image.png", png_buf);
-                    fz_drop_buffer(context, png_buf);
-                    return doc;
-                }
-                if (rgba) WebPFree(rgba);
-            }
-        }
-    }
-
-#endif
-
     float epub_width, epub_height;
     get_path_epub_size(file_name, &epub_width, &epub_height);
 

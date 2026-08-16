@@ -46,16 +46,15 @@ As you scroll across a file boundary, the viewer **adopts the document under the
 
 ## WebP image support
 
-sioyek can open `.webp` images and CBZ archives that contain WebP pages. There are two independent pieces:
+sioyek can open `.webp` images and CBZ archives that contain WebP pages through mupdf's compressed-image pipeline:
 
-- **Standalone `.webp` files** are decoded inside sioyek (libwebp → PNG), so they work on any build compiled with `SIOYEK_WEBP` and linked against `-lwebp` (the Linux and macOS qmake builds and the Nix package).
-- **WebP embedded inside CBZ** archives requires patching mupdf's `source/cbz/mucbz.c` (see `patches/mupdf-cbz-webp.patch`).
+- mupdf reads the WebP header for image metadata and retains the compressed bytes until the page needs to be rendered.
+- Standalone `.webp` files and WebP pages inside CBZ archives use the same decoder. libwebp writes directly into a mupdf pixmap; there is no intermediate PNG re-encoding.
 
 **Caveats:**
 
-- The mupdf CBZ patch is only applied automatically by the **Nix** build (`package.nix` adds it via `mupdf.overrideAttrs`). On other builds, standalone `.webp` works but CBZ-embedded WebP does **not**, unless you apply `patches/mupdf-cbz-webp.patch` to the mupdf you link against.
-- The Windows build is not wired for WebP at all (no `SIOYEK_WEBP`, no `-lwebp`).
-- Transparency is preserved: decoding uses `WebPDecodeRGBA` and premultiplies alpha before handing the pixmap to mupdf.
+- Builds must use the patched mupdf and link it with libwebp.
+- Transparency is preserved by decoding to RGBA and premultiplying alpha in place.
 
 ## Nix packaging
 
