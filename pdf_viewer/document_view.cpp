@@ -848,7 +848,7 @@ void DocumentView::rebuild_continuous_document_stack(bool force) {
         }
         else {
             document = document_manager->get_document(file_path);
-            if (!document->open(nullptr, true)) {
+            if (!document->open(nullptr, true, "", false, true /* is_auxiliary */)) {
                 continue;
             }
         }
@@ -905,7 +905,7 @@ int DocumentView::get_center_virtual_page() {
     }
 
     fill_cached_virtual_rects();
-    if (cached_virtual_rects.size() == 0) return 0;
+    if (cached_virtual_rects.size() == 0) return -1;
 
     // offset is the center of the viewport in virtual coordinates.
     float center_y = offset.y;
@@ -924,6 +924,7 @@ void DocumentView::set_current_subdocument(Document* doc) {
     // start in the stack (see get_current_document_stack_start_y). The stack is
     // keyed on the anchor path and will be rebuilt (identically) on next fill.
     current_document = doc;
+    current_document->promote_to_active();
 }
 
 void DocumentView::get_visible_pages(int window_height, std::vector<int>& visible_pages) {
@@ -968,13 +969,13 @@ void DocumentView::move_screens(int num_screens) {
 }
 
 void DocumentView::reset_doc_state() {
+    cached_virtual_rects.clear();
+    same_width_mode_first_page_width = {};
+    invalidate_continuous_document_stack();
     zoom_level = 1.0f;
     set_offsets(0.0f, 0.0f);
     is_ruler_mode_ = false;
     presentation_page_number = {};
-    cached_virtual_rects.clear();
-    same_width_mode_first_page_width = {};
-    invalidate_continuous_document_stack();
 }
 
 void DocumentView::open_document(const std::wstring& doc_path,
@@ -1006,6 +1007,9 @@ void DocumentView::open_document(const std::wstring& doc_path,
     //current_document->open();
     if (!current_document->open(invalid_flag, force_load_dimensions)) {
         current_document = nullptr;
+    }
+    else {
+        current_document->promote_to_active(invalid_flag);
     }
 
     reset_doc_state();

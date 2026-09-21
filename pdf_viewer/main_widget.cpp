@@ -2392,6 +2392,7 @@ void MainWidget::synchronize_continuous_scroll_subdocument() {
     if (!main_document_view->is_continuous_document_scroll_active()) return;
 
     int center_virtual_page = main_document_view->get_center_virtual_page();
+    if (center_virtual_page < 0) return;
     Document* sub_document = main_document_view->get_document_for_page(center_virtual_page);
     if (!sub_document || sub_document == main_document_view->get_document()) return;
 
@@ -2400,6 +2401,8 @@ void MainWidget::synchronize_continuous_scroll_subdocument() {
     // Adopt the sub-document under the viewport. The virtual offset is
     // preserved, so the on-screen position does not jump.
     main_document_view->set_current_subdocument(sub_document);
+    sub_document->promote_to_active(&this->is_render_invalidated);
+    db_manager->insert_document_hash(new_path, sub_document->get_checksum());
 
     document_manager->add_tab(new_path);
 

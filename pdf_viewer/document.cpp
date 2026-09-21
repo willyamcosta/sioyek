@@ -152,12 +152,11 @@ CharacterIterator PageIterator::end() const {
     return CharacterIterator(nullptr, nullptr, nullptr);
 }
 
-void Document::load_document_metadata_from_db() {
+void Document::load_document_metadata_from_db(bool record_history) {
 
     marks.clear();
     bookmarks.clear();
     highlights.clear();
-    portals.clear();
     portals.clear();
 
     std::optional<std::string> checksum_ = get_checksum_fast();
@@ -168,9 +167,12 @@ void Document::load_document_metadata_from_db() {
         db_manager->select_highlight(checksum, highlights);
         db_manager->select_links(checksum, portals);
         should_reload_annotations = false;
+        if (record_history && !is_auxiliary) {
+            db_manager->insert_document_hash(get_path(), checksum);
+        }
     }
-    else {
-        auto checksum_thread = std::thread([&]() {
+    else if (!is_auxiliary) {
+        auto checksum_thread = std::thread([this, record_history]() {
             std::string checksum = get_checksum();
             if ((checksummer->num_docs_with_checksum(checksum) > 1) || annotations_file_exists()) {
                 if (marks.size() == 0 && bookmarks.size() == 0 && highlights.size() == 0 && portals.size() == 0) {
@@ -183,7 +185,9 @@ void Document::load_document_metadata_from_db() {
                 // annotations that are not loaded
                 should_reload_annotations = true;
             }
-            db_manager->insert_document_hash(get_path(), checksum);
+            if (record_history && !is_auxiliary) {
+                db_manager->insert_document_hash(get_path(), checksum);
+            }
             });
         checksum_thread.detach();
         //checksum_thread.join();
@@ -638,6 +642,7 @@ Document::Document(fz_context* context, std::wstring file_name, DatabaseManager*
     context(context),
     file_name(file_name),
     checksummer(checksummer),
+    is_auxiliary(false),
     doc(nullptr) {
     last_update_time = QDateTime::currentDateTime();
     should_render_annotations = SHOULD_RENDER_PDF_ANNOTATIONS;
@@ -1009,11 +1014,12 @@ void Document::reload(std::string password) {
     open(invalid_flag_pointer, false, password);
 }
 
-bool Document::open(bool* invalid_flag, bool force_load_dimensions, std::string password, bool temp) {
+bool Document::open(bool* invalid_flag, bool force_load_dimensions, std::string password, bool temp, bool is_auxiliary_) {
     load_extras();
 
     last_update_time = QDateTime::currentDateTime();
     if (doc == nullptr) {
+        this->is_auxiliary = is_auxiliary_;
         fz_try(context) {
             //			doc = fz_open_document(context, utf8_encode(file_name).c_str());
             doc = open_document_with_file_name(context, file_name);
@@ -1039,9 +1045,26 @@ bool Document::open(bool* invalid_flag, bool force_load_dimensions, std::string 
         return false;
     }
     else {
-        //std::cerr << "warning! calling open() on an open document" << std::endl;
+        if (!is_auxiliary_) {
+            promote_to_active(invalid_flag);
+        }
         return true;
     }
+}
+
+void Document::promote_to_active(bool* invalid_flag) {
+    if (is_auxiliary) {
+        is_auxiliary = false;
+        create_toc_tree(top_level_toc_nodes);
+        get_flat_toc(top_level_toc_nodes, flat_toc_names, flat_toc_pages);
+        invalid_flag_pointer = invalid_flag;
+        index_document(invalid_flag);
+        if (doc) {
+            fill_highlight_rects(context, doc);
+            detected_paper_name = detect_paper_name(context, doc);
+        }
+    }
+    load_document_metadata_from_db(true /* record_history */);
 }
 
 
@@ -1113,7 +1136,9 @@ void Document::load_page_dimensions(bool force_load_now) {
             //			fz_document* doc_ = fz_open_document(context_, utf8_encode(file_name).c_str());
             fz_document* doc_ = open_document_with_file_name(context_, file_name);
             //fz_layout_document(context_, doc, 600, 800, 20);
-            load_document_metadata_from_db();
+            if (!is_auxiliary) {
+                load_document_metadata_from_db();
+            }
 
             float acc_height_ = 0.0f;
             for (int i = 0; i < n; i++) {
@@ -1149,9 +1174,11 @@ void Document::load_page_dimensions(bool force_load_now) {
             }
             page_dims_mutex.unlock();
 
-            fill_highlight_rects(context_, doc_);
-            detected_paper_name = detect_paper_name(context_, doc_);
-            //db_manager->set_actual_document_name(get_checksum(), detected_paper_name);
+            if (!is_auxiliary) {
+                fill_highlight_rects(context_, doc_);
+                detected_paper_name = detect_paper_name(context_, doc_);
+                //db_manager->set_actual_document_name(get_checksum(), detected_paper_name);
+            }
 
             fz_drop_document(context_, doc_);
         }
@@ -3078,12 +3105,14 @@ void Document::clear_document_caches() {
 void Document::load_document_caches(bool* invalid_flag, bool force_now) {
 
     load_page_dimensions(force_now);
-    create_toc_tree(top_level_toc_nodes);
-    get_flat_toc(top_level_toc_nodes, flat_toc_names, flat_toc_pages);
-    invalid_flag_pointer = invalid_flag;
+    if (!is_auxiliary) {
+        create_toc_tree(top_level_toc_nodes);
+        get_flat_toc(top_level_toc_nodes, flat_toc_names, flat_toc_pages);
+        invalid_flag_pointer = invalid_flag;
 
-    // we don't need to index figures in helper documents
-    index_document(invalid_flag);
+        // we don't need to index figures in helper documents
+        index_document(invalid_flag);
+    }
 }
 
 int Document::reflow(int page) {

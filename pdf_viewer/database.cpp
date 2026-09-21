@@ -673,7 +673,7 @@ bool DatabaseManager::insert_document_hash(const std::wstring& path, const std::
         "DELETE FROM document_hash WHERE path=";
 
     const char* insert_doc_hash_sql = ""\
-        "INSERT INTO document_hash (path, hash) VALUES (";
+        "INSERT OR REPLACE INTO document_hash (path, hash) VALUES (";
 
     std::wstringstream insert_ss;
     insert_ss << insert_doc_hash_sql << "'" << esc(path) << "', '" << esc(checksum) << "');";
