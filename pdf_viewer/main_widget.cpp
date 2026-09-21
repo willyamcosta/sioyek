@@ -1,4 +1,4 @@
-﻿// deduplicate database code
+// deduplicate database code
 // make sure jsons exported by previous sioyek versions can be imported
 // maybe: use a better method to handle deletion of canceled download portals
 // change find_closest_*_index and argminf to use the fact that the list is sorted and speed up the search (not important if there are not a ridiculous amount of highlight/bookmarks)
@@ -6585,6 +6585,7 @@ void MainWidget::handle_open_all_docs() {
         },
         [&](std::string* doc_hash) {
             db_manager->delete_opened_book(*doc_hash);
+            db_manager->delete_document_hash(*doc_hash);
         }
         );
 

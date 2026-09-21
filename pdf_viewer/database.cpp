@@ -1034,6 +1034,17 @@ bool DatabaseManager::delete_opened_book(const std::string& book_path) {
         error_message);
 }
 
+bool DatabaseManager::delete_document_hash(const std::string& checksum) {
+    std::wstringstream ss;
+    ss << "DELETE FROM document_hash where hash='" << esc(checksum) << "';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error(
+        "delete_document_hash",
+        error_code,
+        error_message);
+}
+
 
 bool DatabaseManager::select_opened_books_path_values(std::vector<std::wstring>& out_result) {
     std::wstringstream ss;
