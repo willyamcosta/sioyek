@@ -717,6 +717,27 @@ void PdfRenderer::free_all_resources_for_document(std::wstring doc_path) {
     searching_mutex.unlock();
 }
 
+void PdfRenderer::close_document(std::wstring doc_path) {
+    searching_mutex.lock();
+    for (int i = 0; i < num_threads; i++) {
+        thread_rendering_mutex[i].lock();
+    }
+
+    for (int i = 0; i < num_threads; i++) {
+        auto index = std::make_pair(i, doc_path);
+        if (opened_documents.find(index) != opened_documents.end()) {
+            fz_document* doc_to_delete = opened_documents[index];
+            fz_drop_document(thread_contexts[i], doc_to_delete);
+            opened_documents.erase(index);
+        }
+    }
+
+    for (int i = 0; i < num_threads; i++) {
+        thread_rendering_mutex[i].unlock();
+    }
+    searching_mutex.unlock();
+}
+
 void PdfRenderer::debug() {
     cached_response_mutex.lock();
     for (auto resp : cached_responses) {
