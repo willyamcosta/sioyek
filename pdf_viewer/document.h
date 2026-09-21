@@ -147,6 +147,7 @@ private:
     bool are_highlights_loaded = false;
     bool should_render_annotations = true;
     bool should_reload_annotations = false;
+    bool is_auxiliary = false;
 
     QDateTime last_update_time;
     CachedChecksummer* checksummer;
@@ -172,6 +173,10 @@ public:
     fz_document* doc = nullptr;
     std::wstring detected_paper_name = L"";
 
+    bool get_is_auxiliary() const { return is_auxiliary; }
+    void set_auxiliary(bool aux) { is_auxiliary = aux; }
+    void promote_to_active(bool* invalid_flag = nullptr);
+
     PageIterator page_iterator(int page_number);
     int get_page_text_and_line_rects_after_rect(int page_number,
         AbsoluteRect after,
@@ -179,7 +184,7 @@ public:
         std::vector<PagelessDocumentRect>& line_rects,
         std::vector<PagelessDocumentRect>& char_rects);
 
-    void load_document_metadata_from_db();
+    void load_document_metadata_from_db(bool record_history = true);
     std::string add_bookmark(const std::wstring& desc, float y_offset);
     std::string add_marked_bookmark(const std::wstring& desc, AbsoluteDocumentPos pos);
     int add_incomplete_bookmark(BookMark incomplete_bookmark);
@@ -253,7 +258,7 @@ public:
     bool has_toc();
     const std::vector<std::wstring>& get_flat_toc_names();
     const std::vector<int>& get_flat_toc_pages();
-    bool open(bool* invalid_flag, bool force_load_dimensions = false, std::string password = "", bool temp = false);
+    bool open(bool* invalid_flag, bool force_load_dimensions = false, std::string password = "", bool temp = false, bool is_auxiliary = false);
     void reload(std::string password = "");
     QDateTime get_last_edit_time();
     unsigned int get_milies_since_last_document_update_time();
