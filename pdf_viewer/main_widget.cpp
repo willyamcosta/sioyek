@@ -6612,6 +6612,7 @@ void MainWidget::handle_open_all_docs() {
         },
         [&](std::string* doc_hash) {
             db_manager->delete_opened_book(*doc_hash);
+            db_manager->delete_document_hash(*doc_hash);
         }
         );
 
