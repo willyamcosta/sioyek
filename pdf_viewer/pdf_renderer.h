@@ -116,6 +116,7 @@ public:
     void start_threads();
     void join_threads();
     void free_all_resources_for_document(std::wstring doc_path);
+    void close_document(std::wstring doc_path);
 
     bool is_busy();
     bool is_search_busy();

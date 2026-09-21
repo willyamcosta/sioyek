@@ -177,6 +177,7 @@ bool IGNORE_SCROLL_EVENTS = false;
 bool AUTO_OPEN_ADJACENT_DOCUMENT = false;
 bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN = true;
 bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL = false;
+int CONTINUOUS_DOCUMENT_SCROLL_WINDOW = 2;
 
 #ifdef SIOYEK_MOBILE
 std::wstring STARTUP_COMMANDS = L"toggle_mouse_drag_mode;toggle_fullscreen";
@@ -1132,6 +1133,7 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_int(L"max_created_toc_size", &MAX_CREATED_TABLE_OF_CONTENTS_SIZE, IntExtras{1, 100000});
     add_int(L"prerendered_page_count", &PRERENDERED_PAGE_COUNT, IntExtras{0, 10});
     add_int(L"reload_interval_miliseconds", &RELOAD_INTERVAL_MILISECONDS, IntExtras{0, 10000});
+    add_int(L"continuous_adjacent_document_scroll_window", &CONTINUOUS_DOCUMENT_SCROLL_WINDOW, IntExtras{0, 20});
     add_ivec2(L"main_window_size", MAIN_WINDOW_SIZE);
     add_ivec2(L"helper_window_size", HELPER_WINDOW_SIZE);
     add_ivec2(L"main_window_move", MAIN_WINDOW_MOVE);

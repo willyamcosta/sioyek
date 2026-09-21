@@ -20,6 +20,7 @@
 #include <sstream>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 #include <memory>
 #include <cctype>
@@ -225,6 +226,7 @@ extern bool RESTORE_ALL_WINDOWS_ON_STARTUP;
 extern bool AUTO_OPEN_ADJACENT_DOCUMENT;
 extern bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN;
 extern bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL;
+extern int CONTINUOUS_DOCUMENT_SCROLL_WINDOW;
 
 extern bool SIMPLIFY_FREEHAND_DRAWINGS;
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
@@ -2107,6 +2109,7 @@ void MainWidget::open_document(const std::wstring& path, std::optional<float> of
     if (doc()) {
         document_manager->add_tab(doc()->get_path());
         //doc()->set_only_for_portal(false);
+        prune_continuous_scroll_cache();
     }
 
     bool has_document = main_document_view_has_document();
@@ -2423,8 +2426,66 @@ void MainWidget::synchronize_continuous_scroll_subdocument() {
     main_document_view->persist(false);
     push_state();
 
+    prune_continuous_scroll_cache();
+
     last_smart_fit_page = {};
     set_status_message(file_name.value_or(new_path));
+}
+
+void MainWidget::prune_continuous_scroll_cache() {
+    if (!main_document_view || !main_document_view->is_continuous_document_scroll_active()) return;
+    if (CONTINUOUS_DOCUMENT_SCROLL_WINDOW <= 0) return;
+    if (!doc()) return;
+
+    QString current_dir = QFileInfo(QString::fromStdWString(doc()->get_path())).dir().canonicalPath();
+
+    std::unordered_set<Document*> active_stack_docs;
+    for (Document* d : main_document_view->get_continuous_stack_documents()) {
+        if (d) {
+            active_stack_docs.insert(d);
+        }
+    }
+    if (doc()) {
+        active_stack_docs.insert(doc());
+    }
+    if (helper_document_view_ && helper_document_view_->get_document()) {
+        active_stack_docs.insert(helper_document_view_->get_document());
+    }
+
+    std::vector<std::pair<std::wstring, Document*>> to_free;
+    const auto& cached = document_manager->get_cached_documents();
+    for (const auto& [path, d] : cached) {
+        if (!d) continue;
+        if (active_stack_docs.find(d) != active_stack_docs.end()) {
+            continue;
+        }
+
+        // Only prune files belonging to the same continuous scroll directory
+        QString d_dir = QFileInfo(QString::fromStdWString(path)).dir().canonicalPath();
+        if (d_dir != current_dir) {
+            continue;
+        }
+
+        // Don't free if open in another window
+        bool in_other_window = false;
+        for (auto window : windows) {
+            if (window != this && window->doc() == d) {
+                in_other_window = true;
+                break;
+            }
+        }
+        if (in_other_window) continue;
+
+        to_free.push_back({ path, d });
+    }
+
+    for (const auto& [path, d] : to_free) {
+        if (pdf_renderer) {
+            pdf_renderer->close_document(path);
+        }
+        document_manager->remove_tab(path);
+        document_manager->free_document(d);
+    }
 }
 
 

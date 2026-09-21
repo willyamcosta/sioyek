@@ -34,6 +34,7 @@ extern bool SCROLL_PAST_DOCUMENT_ENDS;
 extern bool HORIZONTAL_SCROLL_PAST_PAGE_ENDS;
 extern bool RECTO_VERSO_ADJUSTMENT;
 extern bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL;
+extern int CONTINUOUS_DOCUMENT_SCROLL_WINDOW;
 
 DocumentView::DocumentView(DatabaseManager* db_manager,
     DocumentManager* document_manager,
@@ -782,8 +783,11 @@ bool DocumentView::is_continuous_document_scroll_active() {
 
 void DocumentView::rebuild_continuous_document_stack(bool force) {
     if (!is_continuous_document_scroll_active()) {
-        continuous_document_pages.clear();
-        continuous_document_stack_anchor_path.clear();
+        if (!continuous_document_pages.empty() || !continuous_document_stack_anchor_path.empty()) {
+            continuous_document_pages.clear();
+            continuous_document_stack_anchor_path.clear();
+            cached_virtual_rects.clear();
+        }
         continuous_document_stack_dirty = false;
         return;
     }
@@ -793,8 +797,18 @@ void DocumentView::rebuild_continuous_document_stack(bool force) {
         current_path = current_document->get_path();
     }
 
-    if (!force && !continuous_document_stack_dirty && continuous_document_stack_anchor_path == current_path) {
+    if (!force && !continuous_document_stack_dirty && !cached_virtual_rects.empty() && continuous_document_stack_anchor_path == current_path) {
         return;
+    }
+
+    std::optional<float> old_anchor_y0;
+    if (!cached_virtual_rects.empty() && cached_virtual_rects.size() == continuous_document_pages.size() && current_document != nullptr) {
+        for (size_t i = 0; i < continuous_document_pages.size(); i++) {
+            if (continuous_document_pages[i].document == current_document && continuous_document_pages[i].page == 0) {
+                old_anchor_y0 = cached_virtual_rects[i].y0;
+                break;
+            }
+        }
     }
 
     continuous_document_pages.clear();
@@ -832,30 +846,82 @@ void DocumentView::rebuild_continuous_document_stack(bool force) {
         for (int page = 0; page < current_document->num_pages(); page++) {
             continuous_document_pages.push_back({ current_document, page, current_document->get_path() });
         }
-        return;
     }
+    else {
+        int current_index = static_cast<int>(std::distance(files.begin(), current_it));
+        int total_files = static_cast<int>(files.size());
+        int start_index = 0;
+        int end_index = total_files - 1;
 
-    for (int file_index = 0; file_index < static_cast<int>(files.size()); file_index++) {
-        const QFileInfo& info = files[file_index];
-        std::wstring file_path = normalized_continuous_document_path(info).toStdWString();
-        if (file_path.empty()) {
-            file_path = info.absoluteFilePath().toStdWString();
+        if (CONTINUOUS_DOCUMENT_SCROLL_WINDOW > 0) {
+            start_index = std::max(0, current_index - CONTINUOUS_DOCUMENT_SCROLL_WINDOW);
+            end_index = std::min(total_files - 1, current_index + CONTINUOUS_DOCUMENT_SCROLL_WINDOW);
         }
 
-        Document* document = nullptr;
-        if (get_canonical_path(file_path) == current_path) {
-            document = current_document;
-        }
-        else {
-            document = document_manager->get_document(file_path);
-            if (!document->open(nullptr, true, "", false, true /* is_auxiliary */)) {
-                continue;
+        for (int file_index = start_index; file_index <= end_index; file_index++) {
+            const QFileInfo& info = files[file_index];
+            std::wstring file_path = normalized_continuous_document_path(info).toStdWString();
+            if (file_path.empty()) {
+                file_path = info.absoluteFilePath().toStdWString();
+            }
+
+            Document* document = nullptr;
+            if (get_canonical_path(file_path) == current_path) {
+                document = current_document;
+            }
+            else {
+                document = document_manager->get_document(file_path);
+                if (!document->open(nullptr, true, "", false, true /* is_auxiliary */)) {
+                    continue;
+                }
+            }
+
+            const int page_count = document->num_pages();
+            for (int page = 0; page < page_count; page++) {
+                continuous_document_pages.push_back({ document, page, file_path });
             }
         }
+    }
 
-        const int page_count = document->num_pages();
-        for (int page = 0; page < page_count; page++) {
-            continuous_document_pages.push_back({ document, page, file_path });
+    cached_virtual_rects.clear();
+    same_width_mode_first_page_width = {};
+
+    float cum_offset = 0;
+    for (const ContinuousDocumentPage& page_entry : continuous_document_pages) {
+        if (!page_entry.document) continue;
+
+        float page_width = page_entry.document->get_page_width(page_entry.page);
+        float page_height = page_entry.document->get_page_height(page_entry.page);
+        if ((page_width < 0) || (page_height < 0)) continue;
+
+        VirtualRect page_rect;
+        page_rect.x0 = -page_width / 2;
+        page_rect.x1 = page_width / 2;
+        page_rect.y0 = cum_offset;
+        page_rect.y1 = cum_offset + page_height;
+        cached_virtual_rects.push_back(page_rect);
+
+        cum_offset += page_height + page_space_y;
+    }
+
+    min_virtual_x = FLT_MAX;
+    max_virtual_x = -FLT_MAX;
+    max_virtual_y = -FLT_MAX;
+
+    for (auto r : cached_virtual_rects) {
+        min_virtual_x = std::min(min_virtual_x, r.x0);
+        max_virtual_x = std::max(max_virtual_x, r.x1);
+        max_virtual_y = std::max(max_virtual_y, r.y1);
+    }
+
+    if (old_anchor_y0.has_value() && current_document != nullptr) {
+        for (size_t i = 0; i < continuous_document_pages.size() && i < cached_virtual_rects.size(); i++) {
+            if (continuous_document_pages[i].document == current_document && continuous_document_pages[i].page == 0) {
+                float new_anchor_y0 = cached_virtual_rects[i].y0;
+                float delta_y = new_anchor_y0 - old_anchor_y0.value();
+                offset.y += delta_y;
+                break;
+            }
         }
     }
 }
@@ -918,13 +984,19 @@ int DocumentView::get_center_virtual_page() {
 void DocumentView::set_current_subdocument(Document* doc) {
     if (!doc || doc == current_document) return;
 
-    // Repoint the active document to the sub-document under the viewport. The
-    // stored offset is in virtual coordinates, so the on-screen position does
-    // not move: virtual_to_absolute now measures against the new document's
-    // start in the stack (see get_current_document_stack_start_y). The stack is
-    // keyed on the anchor path and will be rebuilt (identically) on next fill.
     current_document = doc;
     current_document->promote_to_active();
+    rebuild_continuous_document_stack();
+}
+
+std::vector<Document*> DocumentView::get_continuous_stack_documents() {
+    std::vector<Document*> docs;
+    for (const auto& entry : continuous_document_pages) {
+        if (entry.document && std::find(docs.begin(), docs.end(), entry.document) == docs.end()) {
+            docs.push_back(entry.document);
+        }
+    }
+    return docs;
 }
 
 void DocumentView::get_visible_pages(int window_height, std::vector<int>& visible_pages) {
@@ -2300,59 +2372,6 @@ void DocumentView::fill_cached_virtual_rects(bool force) {
 
     if (is_continuous_document_scroll_active()) {
         rebuild_continuous_document_stack(force);
-
-        bool page_dims_are_loaded = true;
-        for (const ContinuousDocumentPage& page_entry : continuous_document_pages) {
-            if (!page_entry.document || !page_entry.document->can_use_highlights()) {
-                page_dims_are_loaded = false;
-                break;
-            }
-        }
-
-        if (!page_dims_are_loaded) {
-            needs_refill = true;
-        }
-        else {
-            if (needs_refill) {
-                force = true;
-            }
-            needs_refill = false;
-        }
-
-        if ((cached_virtual_rects.size() == 0) || force) {
-            cached_virtual_rects.clear();
-            same_width_mode_first_page_width = {};
-
-            float cum_offset = 0;
-            for (const ContinuousDocumentPage& page_entry : continuous_document_pages) {
-                if (!page_entry.document) continue;
-
-                float page_width = page_entry.document->get_page_width(page_entry.page);
-                float page_height = page_entry.document->get_page_height(page_entry.page);
-                if ((page_width < 0) || (page_height < 0)) continue;
-
-                VirtualRect page_rect;
-                page_rect.x0 = -page_width / 2;
-                page_rect.x1 = page_width / 2;
-                page_rect.y0 = cum_offset;
-                page_rect.y1 = cum_offset + page_height;
-                cached_virtual_rects.push_back(page_rect);
-
-                cum_offset += page_height + page_space_y;
-            }
-        }
-
-        if (!needs_refill) {
-            min_virtual_x = FLT_MAX;
-            max_virtual_x = -FLT_MAX;
-            max_virtual_y = -FLT_MAX;
-
-            for (auto r : cached_virtual_rects) {
-                min_virtual_x = std::min(min_virtual_x, r.x0);
-                max_virtual_x = std::max(max_virtual_x, r.x1);
-                max_virtual_y = std::max(max_virtual_y, r.y1);
-            }
-        }
         return;
     }
 

@@ -552,6 +552,7 @@ public:
     bool open_adjacent_document_in_current_directory(bool next);
     bool maybe_open_adjacent_document_after_boundary_scroll(float scroll_amount, bool was_truncated);
     void synchronize_continuous_scroll_subdocument();
+    void prune_continuous_scroll_cache();
     void validate_render();
     void validate_ui();
     void zoom(WindowPos pos, float zoom_factor, bool zoom_in);
