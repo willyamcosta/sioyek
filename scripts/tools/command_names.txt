@@ -568,3 +568,7 @@ zoom_out_overview
 track_work
 untrack_work
 tracking_status
+open_anilist
+open_tracked_works
+library
+manage_library

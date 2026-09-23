@@ -190,9 +190,9 @@ void TrackerManager::fetch_image(const QString& url_or_path, std::function<void(
 }
 
 void TrackerManager::fetch_cover_by_anilist_id(int media_id,
-                                              std::function<void(const QString& cover_url, const QPixmap& pixmap)> callback) {
+                                              std::function<void(const QString& cover_url, const QPixmap& pixmap, int total_vols, int total_chs)> callback) {
     if (!network_manager || media_id <= 0) {
-        if (callback) callback(QString(), QPixmap());
+        if (callback) callback(QString(), QPixmap(), 0, 0);
         return;
     }
 
@@ -208,6 +208,8 @@ void TrackerManager::fetch_cover_by_anilist_id(int media_id,
         "query ($id: Int) { "
         "  Media(id: $id, type: MANGA) { "
         "    id "
+        "    volumes "
+        "    chapters "
         "    coverImage { large medium } "
         "  } "
         "}"
@@ -225,7 +227,7 @@ void TrackerManager::fetch_cover_by_anilist_id(int media_id,
     QObject::connect(reply, &QNetworkReply::finished, [this, reply, callback]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            if (callback) callback(QString(), QPixmap());
+            if (callback) callback(QString(), QPixmap(), 0, 0);
             return;
         }
 
@@ -233,12 +235,15 @@ void TrackerManager::fetch_cover_by_anilist_id(int media_id,
         QJsonParseError parse_err;
         QJsonDocument doc = QJsonDocument::fromJson(data, &parse_err);
         if (parse_err.error != QJsonParseError::NoError || !doc.isObject()) {
-            if (callback) callback(QString(), QPixmap());
+            if (callback) callback(QString(), QPixmap(), 0, 0);
             return;
         }
 
         QJsonObject root = doc.object();
         QJsonObject media_obj = root.value(QStringLiteral("data")).toObject().value(QStringLiteral("Media")).toObject();
+        int total_vols = media_obj.value(QStringLiteral("volumes")).toInt();
+        int total_chs = media_obj.value(QStringLiteral("chapters")).toInt();
+
         QJsonObject cover_obj = media_obj.value(QStringLiteral("coverImage")).toObject();
         QString cover_url = cover_obj.value(QStringLiteral("large")).toString();
         if (cover_url.isEmpty()) {
@@ -246,12 +251,12 @@ void TrackerManager::fetch_cover_by_anilist_id(int media_id,
         }
 
         if (cover_url.isEmpty()) {
-            if (callback) callback(QString(), QPixmap());
+            if (callback) callback(QString(), QPixmap(), total_vols, total_chs);
             return;
         }
 
-        fetch_image(cover_url, [callback, cover_url](const QPixmap& pm) {
-            if (callback) callback(cover_url, pm);
+        fetch_image(cover_url, [callback, cover_url, total_vols, total_chs](const QPixmap& pm) {
+            if (callback) callback(cover_url, pm, total_vols, total_chs);
         });
     });
 }
@@ -417,6 +422,71 @@ void TrackerManager::sync_anilist_progress(int media_id,
         if (volume > 0) msg += QStringLiteral("Vol %1 ").arg(volume);
         if (chapter > 0.0f) msg += QStringLiteral("Ch %1").arg(chapter);
         if (callback) callback(true, msg.trimmed());
+    });
+}
+
+void TrackerManager::sync_anilist_status(int media_id,
+                                         const QString& status,
+                                         const QString& token,
+                                         std::function<void(bool success, const QString& message)> callback) {
+    if (!network_manager) {
+        if (callback) callback(false, QStringLiteral("Network manager unavailable"));
+        return;
+    }
+    if (media_id <= 0) {
+        if (callback) callback(false, QStringLiteral("No AniList ID configured"));
+        return;
+    }
+    if (token.trimmed().isEmpty()) {
+        if (callback) callback(false, QStringLiteral("No anilist_token configured in prefs"));
+        return;
+    }
+
+    QUrl url(QStringLiteral("https://graphql.anilist.co"));
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Accept", "application/json");
+    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(token.trimmed()).toUtf8());
+
+    QJsonObject variables;
+    variables.insert(QStringLiteral("id"), media_id);
+    variables.insert(QStringLiteral("status"), status);
+
+    QString mutation_str = QStringLiteral(
+        "mutation ($id: Int, $status: MediaListStatus) { "
+        "  SaveMediaListEntry(mediaId: $id, status: $status) { "
+        "    id "
+        "    status "
+        "  } "
+        "}"
+    );
+
+    QJsonObject payload;
+    payload.insert(QStringLiteral("query"), mutation_str);
+    payload.insert(QStringLiteral("variables"), variables);
+
+    QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+
+    QNetworkReply* reply = network_manager->post(request, body);
+    reply->setProperty("sioyek_network_request_type", "anilist_status");
+
+    QObject::connect(reply, &QNetworkReply::finished, [reply, callback, status]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            if (callback) callback(false, reply->errorString());
+            return;
+        }
+
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (doc.isObject() && doc.object().contains(QStringLiteral("errors"))) {
+            QJsonArray errors = doc.object().value(QStringLiteral("errors")).toArray();
+            QString err_msg = errors.isEmpty() ? QStringLiteral("GraphQL Error") : errors.first().toObject().value(QStringLiteral("message")).toString();
+            if (callback) callback(false, err_msg);
+            return;
+        }
+
+        if (callback) callback(true, QStringLiteral("AniList status updated: %1").arg(status));
     });
 }
 
