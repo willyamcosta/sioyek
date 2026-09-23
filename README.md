@@ -60,6 +60,38 @@ sioyek can open `.webp` images and CBZ archives that contain WebP pages through 
 - Builds must use the patched mupdf and link it with libwebp.
 - Transparency is preserved by decoding to RGBA and premultiplying alpha in place.
 
+## Manga & Book tracking (AniList & Floppy)
+
+Automatic series identification and reading progress tracking for manga and books, supporting AniList (via GraphQL) and [Floppy](https://github.com/dannyvfilms/Floppy) (self-hosted media tracker via REST API).
+
+**How it works:**
+- Sioyek heuristically identifies the series title, volume number, and chapter number from the folder and filename (e.g. `Manga/Chainsaw Man/v08.cbz` -> Title: *Chainsaw Man*, Volume: 8).
+- **Opt-in per work:** By default, **no tracking or network sync occurs**. Tracking is disabled until you explicitly check/edit the title and enable tracking for that series.
+- **Visual cover art:** When searching AniList candidates or managing tracked works, Sioyek renders cached cover thumbnails directly in the menu next to each title, so you can immediately tell works apart visually.
+- When enabled, crossing chapter or volume boundaries in continuous scroll mode (or opening new chapters) automatically scrobbles your new progress in the background.
+
+Commands (bind in `keys_user.config` or run in command palette):
+```
+track_work          # Verify/edit title, view cover art, search & link AniList / Floppy, enable tracking
+untrack_work        # Disable tracking for the active series
+tracking_status     # Display current tracking status, progress, and AniList info
+open_anilist        # Instantly open the active work's AniList page in your web browser
+open_tracked_works  # Visual library menu showing all tracked works with cover thumbnails & progress
+```
+
+Configuration in `prefs_user.config`:
+```
+# AniList personal access token (from https://anilist.co/settings/developer)
+anilist_token       <your-anilist-bearer-token>
+
+# Floppy self-hosted media tracker (supports Bearer token or Floppy API key)
+floppy_url          http://localhost:8080
+floppy_token        <your-floppy-app-token>
+
+# Announce detected series on open (1 = on, 0 = silent; tracking remains opt-in)
+tracker_auto_notify 1
+```
+
 ## Nix packaging
 
 A `flake.nix` / `package.nix` build is included. It builds sioyek against a WebP-patched mupdf, so both standalone and CBZ WebP work out of the box:
@@ -70,9 +102,7 @@ nix build
 
 ## Planned / Roadmap features
 
-- **Boundary page pre-rendering**: Background pre-rendering of initial pages of adjacent documents to eliminate page-load latency when crossing document boundaries.
 - **Library view**: Visual shelf / library interface with cover thumbnails, series grouping, and progress tracking for books and manga.
-- **Progress tracking integration**: Automatic scrobbling and sync with AniList and Floppy (self-hosted media tracker) when reading chapters and volumes.
 - **Two-page / manga spread continuous scroll**: Support for continuous scrolling in two-page / RTL manga spread modes across volume transitions.
 
 # Development Branch FAQ

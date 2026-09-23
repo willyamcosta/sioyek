@@ -13,6 +13,7 @@
 #include <thread>
 #include <unordered_map>
 #include <map>
+#include <set>
 
 #include <qobject.h>
 #include <qtimer.h>
@@ -29,6 +30,7 @@ struct RenderRequest {
     int slice_index = -1;
     int num_h_slices = 1;
     int num_v_slices = 1;
+    bool is_prerender = false;
 };
 
 struct SearchRequest {
@@ -88,6 +90,8 @@ class PdfRenderer : public QObject {
 
     std::mutex searching_mutex;
     std::vector<std::mutex> thread_rendering_mutex;
+    std::mutex visible_pages_mutex;
+    std::set<std::pair<std::wstring, int>> currently_visible_pages;
 
     QTimer garbage_collect_timer;
 
@@ -121,7 +125,7 @@ public:
     bool is_busy();
     bool is_search_busy();
     //should only be called from the main thread
-    void add_request(std::wstring document_path, int page, bool should_render_annotations, float zoom_level, float display_scale, int index, int num_h_slices, int num_v_slices);
+    void add_request(std::wstring document_path, int page, bool should_render_annotations, float zoom_level, float display_scale, int index, int num_h_slices, int num_v_slices, bool is_prerender = false);
     void add_request(std::wstring document_path,
         int page,
         std::wstring term,
@@ -133,8 +137,9 @@ public:
         std::optional<std::pair<int,
         int>> range = {});
 
-    GLuint find_rendered_page(std::wstring path, int page, bool should_render_annotations, int index, int num_h_slices, int num_v_slices, float zoom_level, float display_scale, int* page_width, int* page_height);
+    GLuint find_rendered_page(std::wstring path, int page, bool should_render_annotations, int index, int num_h_slices, int num_v_slices, float zoom_level, float display_scale, int* page_width, int* page_height, bool is_prerender = false);
     void delete_old_pages(bool force_all = false, bool invalidate_all = false);
+    void set_visible_pages(const std::vector<std::pair<std::wstring, int>>& pages);
     void add_password(std::wstring path, std::string password);
     void debug();
     void set_num_cached_pages(int n_cached_pages);
