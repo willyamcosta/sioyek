@@ -48,6 +48,7 @@ extern float OVERVIEW_OFFSET[2];
 extern float FASTREAD_OPACITY;
 extern bool PRERENDER_NEXT_PAGE;
 extern int PRERENDERED_PAGE_COUNT;
+extern int CONTINUOUS_SCROLL_PRERENDER_PAGES;
 extern bool SHOULD_HIGHLIGHT_LINKS;
 extern bool SHOULD_HIGHLIGHT_UNSELECTED_SEARCH;
 extern float UNSELECTED_SEARCH_HIGHLIGHT_COLOR[3];
@@ -1443,16 +1444,16 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
         }
         // prerender pages
         if (visible_pages.size() > 0) {
-            int max_page = visible_pages[visible_pages.size() - 1];
-            for (int i = 0; i < (PRERENDERED_PAGE_COUNT + 1); i++) {
-                int virtual_page = max_page + i;
+            auto prerender_page_fn = [&](int virtual_page) {
                 Document* prerender_document = document_view->get_document_for_page(virtual_page);
-                if (!prerender_document) continue;
+                if (!prerender_document) return;
                 int prerender_page = document_view->get_local_page_for_page(virtual_page);
-                if (prerender_page < 0 || prerender_page >= prerender_document->num_pages()) continue;
+                if (prerender_page < 0 || prerender_page >= prerender_document->num_pages()) return;
 
                 float page_width = prerender_document->get_page_width(prerender_page);
                 float page_height = prerender_document->get_page_height(prerender_page);
+                if (page_width <= 0 || page_height <= 0) return;
+
                 PagelessDocumentRect page_rect({ 0, 0, page_width, page_height });
                 int nh, nv;
                 num_slices_for_page_rect(page_rect, &nh, &nv);
@@ -1469,6 +1470,45 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                         devicePixelRatioF(),
                         nullptr,
                         nullptr);
+                }
+            };
+
+            int max_page = visible_pages.back();
+            int min_page = visible_pages.front();
+
+            int forward_pages = PRERENDERED_PAGE_COUNT;
+            int backward_pages = 0;
+
+            if (document_view->is_continuous_document_scroll_active()) {
+                forward_pages = std::max(forward_pages, CONTINUOUS_SCROLL_PRERENDER_PAGES);
+                backward_pages = std::max(backward_pages, std::min(CONTINUOUS_SCROLL_PRERENDER_PAGES, 2));
+            }
+
+            for (int i = 0; i < (forward_pages + 1); i++) {
+                prerender_page_fn(max_page + i);
+            }
+            for (int i = 1; i <= backward_pages; i++) {
+                prerender_page_fn(min_page - i);
+            }
+
+            if (document_view->is_continuous_document_scroll_active() && CONTINUOUS_SCROLL_PRERENDER_PAGES > 0) {
+                Document* current_doc = doc();
+                if (current_doc) {
+                    int current_page = document_view->get_center_page_number();
+                    int current_num_pages = current_doc->num_pages();
+
+                    // Near end of current document: pre-render start of next document
+                    if (current_page >= current_num_pages - 4) {
+                        for (int vp = max_page + 1; vp <= max_page + CONTINUOUS_SCROLL_PRERENDER_PAGES + 2; vp++) {
+                            prerender_page_fn(vp);
+                        }
+                    }
+                    // Near start of current document: pre-render end of previous document
+                    if (current_page <= 4) {
+                        for (int vp = min_page - 1; vp >= min_page - (CONTINUOUS_SCROLL_PRERENDER_PAGES + 2); vp--) {
+                            prerender_page_fn(vp);
+                        }
+                    }
                 }
             }
         }

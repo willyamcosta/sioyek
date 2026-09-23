@@ -227,6 +227,7 @@ extern bool AUTO_OPEN_ADJACENT_DOCUMENT;
 extern bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN;
 extern bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL;
 extern int CONTINUOUS_DOCUMENT_SCROLL_WINDOW;
+extern int CONTINUOUS_SCROLL_PRERENDER_PAGES;
 
 extern bool SIMPLIFY_FREEHAND_DRAWINGS;
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
@@ -2110,6 +2111,9 @@ void MainWidget::open_document(const std::wstring& path, std::optional<float> of
         document_manager->add_tab(doc()->get_path());
         //doc()->set_only_for_portal(false);
         prune_continuous_scroll_cache();
+        if (main_document_view && main_document_view->is_continuous_document_scroll_active()) {
+            pdf_renderer->set_num_cached_pages(std::max(NUM_CACHED_PAGES, 2 * CONTINUOUS_SCROLL_PRERENDER_PAGES + 4));
+        }
     }
 
     bool has_document = main_document_view_has_document();
@@ -11606,13 +11610,15 @@ void MainWidget::handle_move_smooth_hold(bool down) {
 
 void MainWidget::handle_toggle_two_page_mode() {
     main_document_view->toggle_two_page();
-    if (NUM_CACHED_PAGES < 6) {
-        if (main_document_view->is_two_page_mode()) {
-            pdf_renderer->set_num_cached_pages(NUM_CACHED_PAGES * 2);
-        }
-        else {
-            pdf_renderer->set_num_cached_pages(NUM_CACHED_PAGES);
-        }
+    int base_cached = NUM_CACHED_PAGES;
+    if (main_document_view && main_document_view->is_continuous_document_scroll_active()) {
+        base_cached = std::max(base_cached, 2 * CONTINUOUS_SCROLL_PRERENDER_PAGES + 4);
+    }
+    if (main_document_view->is_two_page_mode()) {
+        pdf_renderer->set_num_cached_pages(base_cached * 2);
+    }
+    else {
+        pdf_renderer->set_num_cached_pages(base_cached);
     }
 }
 
