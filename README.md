@@ -31,16 +31,20 @@ Supported file types: pdf, epub, xps, djv(u), fb2, cbz/cbr/cb7/cbt, and common i
 ## Continuous scrolling across adjacent documents
 
 ```
-continuous_adjacent_document_scroll   0
+continuous_adjacent_document_scroll          0
+continuous_adjacent_document_scroll_window   2   # neighbor documents loaded around current (0 = unlimited)
 ```
 
-When enabled, all supported documents in the current folder are stitched into a single continuous scroll, so scrolling off the end of one file flows straight into the next.
+When enabled, documents in the current folder are stitched into a continuous vertical scroll using a sliding window. Scrolling off the end of one file flows straight into the next.
 
-As you scroll across a file boundary, the viewer **adopts the document under the viewport as the active document**: the window title, page counter (`current page / that file's page count`), navigation history and saved position all follow the file you are actually looking at. Because the position is saved per file, reopening later restores you to the right document and page — even with continuous scroll disabled — and each file you pass through is recorded in your history and recent files. A status message announces each file as you enter it.
+As you scroll across a file boundary, the viewer **adopts the document under the viewport as the active document**: the window title, page counter (`current page / that file's page count`), navigation history and saved position all follow the file you are actually looking at. Because the position is saved per file, reopening later restores you to the right document and page — even with continuous scroll disabled — and only files you actually view are recorded in your history and recent files (opening a folder does not pollute history with adjacent files). A status message announces each file as you enter it.
+
+**Sliding window and resource management:**
+- To prevent exhausting memory and open file descriptors in large collections (such as manga directories with dozens of volumes), only the current document and $\pm N$ neighbor documents (controlled by `continuous_adjacent_document_scroll_window`, default `2`) are loaded at any time.
+- As you scroll deeper into the series, documents behind you slide out of the window and are pruned from memory and the renderer threads, while upcoming documents are seamlessly loaded ahead with zero visual pixel jumps.
 
 **Caveats:**
 
-- Enabling this **eagerly opens every supported document in the folder** to build the combined page stack. In a folder with many or large files this costs noticeable memory and load time. It is off by default for this reason — keep it off for large folders.
 - It is mutually exclusive with `auto_open_adjacent_document` (continuous scroll takes precedence).
 - It disables the fast-coordinates path, so it interacts with two-page mode, selection, links and synctex; treat it as experimental.
 
@@ -63,6 +67,13 @@ A `flake.nix` / `package.nix` build is included. It builds sioyek against a WebP
 ```
 nix build
 ```
+
+## Planned / Roadmap features
+
+- **Boundary page pre-rendering**: Background pre-rendering of initial pages of adjacent documents to eliminate page-load latency when crossing document boundaries.
+- **Library view**: Visual shelf / library interface with cover thumbnails, series grouping, and progress tracking for books and manga.
+- **Progress tracking integration**: Automatic scrobbling and sync with AniList and Floppy (self-hosted media tracker) when reading chapters and volumes.
+- **Two-page / manga spread continuous scroll**: Support for continuous scrolling in two-page / RTL manga spread modes across volume transitions.
 
 # Development Branch FAQ
 
