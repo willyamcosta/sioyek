@@ -526,6 +526,8 @@ bool DatabaseManager::open(const std::wstring& local_db_file_path, const std::ws
         global_db = local_db;
     }
 
+    create_tracked_works_table();
+
     return true;
 }
 
@@ -1229,6 +1231,7 @@ void DatabaseManager::create_tables() {
     create_highlights_table();
     create_links_table();
     create_document_hash_table();
+    create_tracked_works_table();
 }
 
 bool update_string_value(sqlite3* db,
@@ -2094,3 +2097,132 @@ bool DatabaseManager::delete_annotation(Annotation* annot) {
         error_code,
         error_message);
 }
+
+bool DatabaseManager::create_tracked_works_table() {
+    const char* create_sql = "CREATE TABLE IF NOT EXISTS tracked_works ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "series_path TEXT UNIQUE,"
+        "title TEXT,"
+        "anilist_id INTEGER DEFAULT 0,"
+        "anilist_title TEXT DEFAULT '',"
+        "floppy_id TEXT DEFAULT '',"
+        "cover_url TEXT DEFAULT '',"
+        "is_tracking INTEGER DEFAULT 0,"
+        "last_volume INTEGER DEFAULT 0,"
+        "last_chapter REAL DEFAULT 0.0);";
+
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, create_sql, null_callback, 0, &error_message);
+    // Add cover_url column if migrating from previous table schema
+    sqlite3_exec(local_db, "ALTER TABLE tracked_works ADD COLUMN cover_url TEXT DEFAULT '';", null_callback, 0, nullptr);
+    return handle_error("create_tracked_works_table", error_code, error_message);
+}
+
+static int tracked_work_select_callback(void* res_ptr, int argc, char** argv, char** col_name) {
+    TrackedWork* work = (TrackedWork*)res_ptr;
+    if (argc >= 10) {
+        if (argv[0]) work->id = atoi(argv[0]);
+        if (argv[1]) work->series_path = QString::fromUtf8(argv[1]);
+        if (argv[2]) work->title = QString::fromUtf8(argv[2]);
+        if (argv[3]) work->anilist_id = atoi(argv[3]);
+        if (argv[4]) work->anilist_title = QString::fromUtf8(argv[4]);
+        if (argv[5]) work->floppy_id = QString::fromUtf8(argv[5]);
+        if (argv[6]) work->cover_url = QString::fromUtf8(argv[6]);
+        if (argv[7]) work->is_tracking = (atoi(argv[7]) != 0);
+        if (argv[8]) work->last_volume = atoi(argv[8]);
+        if (argv[9]) work->last_chapter = atof(argv[9]);
+    }
+    return 0;
+}
+
+bool DatabaseManager::select_tracked_work(const std::wstring& series_path, TrackedWork& out_work) {
+    out_work = TrackedWork();
+    std::wstringstream ss;
+    ss << L"SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter FROM tracked_works WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), tracked_work_select_callback, &out_work, &error_message);
+    handle_error("select_tracked_work", error_code, error_message);
+    return out_work.id != -1;
+}
+
+static int all_tracked_works_callback(void* res_ptr, int argc, char** argv, char** col_name) {
+    auto* works = (std::vector<TrackedWork>*)res_ptr;
+    TrackedWork work;
+    if (argc >= 10) {
+        if (argv[0]) work.id = atoi(argv[0]);
+        if (argv[1]) work.series_path = QString::fromUtf8(argv[1]);
+        if (argv[2]) work.title = QString::fromUtf8(argv[2]);
+        if (argv[3]) work.anilist_id = atoi(argv[3]);
+        if (argv[4]) work.anilist_title = QString::fromUtf8(argv[4]);
+        if (argv[5]) work.floppy_id = QString::fromUtf8(argv[5]);
+        if (argv[6]) work.cover_url = QString::fromUtf8(argv[6]);
+        if (argv[7]) work.is_tracking = (atoi(argv[7]) != 0);
+        if (argv[8]) work.last_volume = atoi(argv[8]);
+        if (argv[9]) work.last_chapter = atof(argv[9]);
+    }
+    works->push_back(work);
+    return 0;
+}
+
+bool DatabaseManager::select_all_tracked_works(std::vector<TrackedWork>& out_works) {
+    out_works.clear();
+    const char* sql = "SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter FROM tracked_works ORDER BY is_tracking DESC, id DESC;";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, sql, all_tracked_works_callback, &out_works, &error_message);
+    return handle_error("select_all_tracked_works", error_code, error_message);
+}
+
+bool DatabaseManager::save_tracked_work(const TrackedWork& work) {
+    std::wstringstream ss;
+    ss << L"INSERT INTO tracked_works (series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter) "
+       << L"VALUES ('" << esc(work.series_path.toStdWString()) << L"', "
+       << L"'" << esc(work.title.toStdWString()) << L"', "
+       << work.anilist_id << L", "
+       << L"'" << esc(work.anilist_title.toStdWString()) << L"', "
+       << L"'" << esc(work.floppy_id.toStdWString()) << L"', "
+       << L"'" << esc(work.cover_url.toStdWString()) << L"', "
+       << (work.is_tracking ? 1 : 0) << L", "
+       << work.last_volume << L", "
+       << work.last_chapter << L") "
+       << L"ON CONFLICT(series_path) DO UPDATE SET "
+       << L"title=excluded.title, "
+       << L"anilist_id=excluded.anilist_id, "
+       << L"anilist_title=excluded.anilist_title, "
+       << L"floppy_id=excluded.floppy_id, "
+       << L"cover_url=CASE WHEN excluded.cover_url != '' THEN excluded.cover_url ELSE tracked_works.cover_url END, "
+       << L"is_tracking=excluded.is_tracking, "
+       << L"last_volume=excluded.last_volume, "
+       << L"last_chapter=excluded.last_chapter;";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("save_tracked_work", error_code, error_message);
+}
+
+bool DatabaseManager::set_work_tracking_status(const std::wstring& series_path, bool is_tracking) {
+    std::wstringstream ss;
+    ss << L"UPDATE tracked_works SET is_tracking=" << (is_tracking ? 1 : 0)
+       << L" WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("set_work_tracking_status", error_code, error_message);
+}
+
+bool DatabaseManager::update_work_progress(const std::wstring& series_path, int volume, float chapter) {
+    std::wstringstream ss;
+    ss << L"UPDATE tracked_works SET last_volume=" << volume
+       << L", last_chapter=" << chapter
+       << L" WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("update_work_progress", error_code, error_message);
+}
+
+bool DatabaseManager::update_work_cover(const std::wstring& series_path, const std::wstring& cover_url) {
+    std::wstringstream ss;
+    ss << L"UPDATE tracked_works SET cover_url='" << esc(cover_url)
+       << L"' WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("update_work_cover", error_code, error_message);
+}
+

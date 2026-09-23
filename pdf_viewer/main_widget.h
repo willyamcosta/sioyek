@@ -18,6 +18,7 @@
 #include "book.h"
 #include "input.h"
 #include "path.h"
+#include "tracker.h"
 
 extern float VERTICAL_MOVE_AMOUNT;
 extern float HORIZONTAL_MOVE_AMOUNT;
@@ -152,6 +153,7 @@ public:
     CommandManager* command_manager = nullptr;
     ConfigManager* config_manager = nullptr;
     QNetworkAccessManager network_manager;
+    TrackerManager* tracker_manager = nullptr;
     PdfRenderer* pdf_renderer = nullptr;
     InputHandler* input_handler = nullptr;
     CachedChecksummer* checksummer = nullptr;
@@ -553,6 +555,13 @@ public:
     bool maybe_open_adjacent_document_after_boundary_scroll(float scroll_amount, bool was_truncated);
     void synchronize_continuous_scroll_subdocument();
     void prune_continuous_scroll_cache();
+    void handle_track_work();
+    void handle_untrack_work();
+    void handle_tracking_status();
+    void handle_open_anilist();
+    void handle_open_tracked_works();
+    void maybe_trigger_tracking_sync(const std::wstring& document_path);
+    void prompt_track_work_search(const ParsedWorkInfo& parsed, const QString& search_query);
     void validate_render();
     void validate_ui();
     void zoom(WindowPos pos, float zoom_factor, bool zoom_in);

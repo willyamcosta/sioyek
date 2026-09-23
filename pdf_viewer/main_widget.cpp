@@ -228,6 +228,10 @@ extern bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN;
 extern bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL;
 extern int CONTINUOUS_DOCUMENT_SCROLL_WINDOW;
 extern int CONTINUOUS_SCROLL_PRERENDER_PAGES;
+extern std::wstring ANILIST_TOKEN;
+extern std::wstring FLOPPY_URL;
+extern std::wstring FLOPPY_TOKEN;
+extern bool TRACKER_AUTO_NOTIFY;
 
 extern bool SIMPLIFY_FREEHAND_DRAWINGS;
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
@@ -316,7 +320,7 @@ bool MainWidget::main_document_view_has_document()
 }
 
 template<typename T>
-void set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multiline, std::vector<std::vector<std::wstring>> columns,
+BaseSelectorWidget* set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multiline, std::vector<std::vector<std::wstring>> columns,
     std::vector<T> values,
     int selected_index,
     std::function<void(T*)> on_select,
@@ -346,6 +350,7 @@ void set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multilin
 
             widget->set_filter_column_index(-1);
             main_widget->set_current_widget(widget);
+            return nullptr;
         }
         else {
             auto w = new FilteredSelectTableWindowClass<T>(
@@ -370,6 +375,7 @@ void set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multilin
                 w->set_on_edit_function(on_edit);
             }
             main_widget->set_current_widget(w);
+            return w;
         }
     }
     else {
@@ -389,10 +395,11 @@ void set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multilin
                     }
                 }, main_widget);
             main_widget->set_current_widget(widget);
+            return nullptr;
         }
         else {
 
-            main_widget->set_current_widget(new FilteredSelectWindowClass<T>(
+            auto w = new FilteredSelectWindowClass<T>(
                 fuzzy,
                 columns[0],
                 values,
@@ -407,7 +414,9 @@ void set_filtered_select_menu(MainWidget* main_widget, bool fuzzy, bool multilin
                         on_delete(val);
                     }
                 },
-                    selected_index));
+                    selected_index);
+            main_widget->set_current_widget(w);
+            return w;
         }
     }
 }
@@ -948,6 +957,7 @@ MainWidget::MainWidget(fz_context* mupdf_context,
 
     main_document_view = new DocumentView(db_manager, document_manager, checksummer);
     opengl_widget = new PdfViewOpenGLWidget(main_document_view, pdf_renderer, config_manager, false, this);
+    tracker_manager = new TrackerManager(&network_manager, this);
 
     QFont label_font = QFont(get_status_font_face_name());
     label_font.setStyleHint(QFont::TypeWriter);
@@ -2114,6 +2124,7 @@ void MainWidget::open_document(const std::wstring& path, std::optional<float> of
         if (main_document_view && main_document_view->is_continuous_document_scroll_active()) {
             pdf_renderer->set_num_cached_pages(std::max(NUM_CACHED_PAGES, 2 * CONTINUOUS_SCROLL_PRERENDER_PAGES + 4));
         }
+        maybe_trigger_tracking_sync(path);
     }
 
     bool has_document = main_document_view_has_document();
@@ -2431,6 +2442,7 @@ void MainWidget::synchronize_continuous_scroll_subdocument() {
     push_state();
 
     prune_continuous_scroll_cache();
+    maybe_trigger_tracking_sync(new_path);
 
     last_smart_fit_page = {};
     set_status_message(file_name.value_or(new_path));
@@ -2490,6 +2502,424 @@ void MainWidget::prune_continuous_scroll_cache() {
         document_manager->remove_tab(path);
         document_manager->free_document(d);
     }
+}
+
+void MainWidget::maybe_trigger_tracking_sync(const std::wstring& document_path) {
+    if (!db_manager || !tracker_manager) return;
+    ParsedWorkInfo parsed = TrackerManager::parse_work_info(QString::fromStdWString(document_path));
+    if (parsed.series_path.isEmpty()) return;
+
+    TrackedWork work;
+    bool found = db_manager->select_tracked_work(parsed.series_path.toStdWString(), work);
+    if (!found || !work.is_tracking) {
+        if (!found && TRACKER_AUTO_NOTIFY && !parsed.title.isEmpty() && (parsed.volume > 0 || parsed.chapter > 0.0f)) {
+            work.series_path = parsed.series_path;
+            work.title = parsed.title;
+            work.is_tracking = false; // Opt-in!
+            work.last_volume = parsed.volume;
+            work.last_chapter = parsed.chapter;
+            db_manager->save_tracked_work(work);
+        }
+        return;
+    }
+
+    if (work.cover_url.isEmpty() && work.anilist_id > 0) {
+        std::wstring s_path = work.series_path.toStdWString();
+        tracker_manager->fetch_cover_by_anilist_id(work.anilist_id, [this, s_path](const QString& cover_url, const QPixmap&) {
+            if (!cover_url.isEmpty() && db_manager) {
+                db_manager->update_work_cover(s_path, cover_url.toStdWString());
+            }
+        });
+    }
+
+    int current_vol = parsed.volume;
+    float current_ch = parsed.chapter;
+    if (current_vol == 0 && current_ch == 0.0f) return;
+
+    bool should_sync = false;
+    if (current_vol > work.last_volume) {
+        should_sync = true;
+    } else if (current_vol == work.last_volume && current_ch > work.last_chapter) {
+        should_sync = true;
+    }
+
+    if (should_sync) {
+        work.last_volume = current_vol;
+        work.last_chapter = current_ch;
+        db_manager->update_work_progress(parsed.series_path.toStdWString(), current_vol, current_ch);
+
+        QString anilist_tok = QString::fromStdWString(ANILIST_TOKEN).trimmed();
+        if (work.anilist_id > 0 && !anilist_tok.isEmpty()) {
+            tracker_manager->sync_anilist_progress(work.anilist_id, current_vol, current_ch, anilist_tok,
+                [this](bool ok, const QString& msg) {
+                    if (ok) {
+                        set_status_message(msg.toStdWString());
+                    }
+                });
+        }
+
+        QString floppy_u = QString::fromStdWString(FLOPPY_URL).trimmed();
+        QString floppy_tok = QString::fromStdWString(FLOPPY_TOKEN).trimmed();
+        if (!floppy_u.isEmpty()) {
+            tracker_manager->sync_floppy_progress(work.title, current_vol, current_ch, floppy_u, floppy_tok,
+                [this](bool ok, const QString& msg) {
+                    if (ok) {
+                        set_status_message(msg.toStdWString());
+                    }
+                });
+        }
+    }
+}
+
+void MainWidget::prompt_track_work_search(const ParsedWorkInfo& parsed, const QString& search_query) {
+    QString anilist_tok = QString::fromStdWString(ANILIST_TOKEN).trimmed();
+    if (anilist_tok.isEmpty()) {
+        show_text_prompt(search_query.toStdWString(), [this, parsed](std::wstring confirmed_title) {
+            TrackedWork work;
+            work.series_path = parsed.series_path;
+            work.title = QString::fromStdWString(confirmed_title);
+            work.is_tracking = true; // User explicitly confirmed
+            work.last_volume = parsed.volume;
+            work.last_chapter = parsed.chapter;
+            db_manager->save_tracked_work(work);
+            set_status_message(L"Tracking ENABLED for: " + confirmed_title);
+            if (doc()) {
+                maybe_trigger_tracking_sync(doc()->get_path());
+            }
+        });
+        return;
+    }
+
+    set_status_message(L"Searching AniList for: " + search_query.toStdWString() + L"...");
+    tracker_manager->search_anilist(search_query, [this, parsed, search_query](bool ok, const std::vector<AniListCandidate>& candidates, const QString& err) {
+        std::vector<std::wstring> col_titles;
+        std::vector<std::wstring> col_details;
+        std::vector<int> candidate_indices;
+
+        for (size_t i = 0; i < candidates.size(); i++) {
+            col_titles.push_back(candidates[i].display_title().toStdWString());
+            col_details.push_back(candidates[i].details_str().toStdWString());
+            candidate_indices.push_back((int)i);
+        }
+
+        col_titles.push_back(L"Track locally as \"" + search_query.toStdWString() + L"\" (No AniList ID)");
+        col_details.push_back(L"Enable tracking for Floppy and local progress only");
+        candidate_indices.push_back(-1);
+
+        col_titles.push_back(L"Edit title / Custom search...");
+        col_details.push_back(L"Search AniList with a different title");
+        candidate_indices.push_back(-2);
+
+        auto* selector = set_filtered_select_menu<int>(this, false, true, { col_titles, col_details }, candidate_indices, -1,
+            [this, parsed, candidates, search_query](int* idx) {
+                if (!idx) return;
+                if (*idx >= 0 && *idx < (int)candidates.size()) {
+                    const auto& cand = candidates[*idx];
+                    TrackedWork work;
+                    work.series_path = parsed.series_path;
+                    work.title = cand.display_title();
+                    work.anilist_id = cand.id;
+                    work.anilist_title = cand.display_title();
+                    work.cover_url = cand.cover_url;
+                    work.is_tracking = true; // Explicit opt-in!
+                    work.last_volume = parsed.volume;
+                    work.last_chapter = parsed.chapter;
+                    db_manager->save_tracked_work(work);
+                    set_status_message(L"Tracking ENABLED for: " + work.title.toStdWString() + L" (AniList #" + std::to_wstring(cand.id) + L")");
+                    if (doc()) {
+                        maybe_trigger_tracking_sync(doc()->get_path());
+                    }
+                } else if (*idx == -1) {
+                    TrackedWork work;
+                    work.series_path = parsed.series_path;
+                    work.title = search_query;
+                    work.cover_url = tracker_manager->find_local_cover(parsed.series_path);
+                    work.is_tracking = true; // Explicit opt-in!
+                    work.last_volume = parsed.volume;
+                    work.last_chapter = parsed.chapter;
+                    db_manager->save_tracked_work(work);
+                    set_status_message(L"Tracking ENABLED for: " + search_query.toStdWString() + L" (Local/Floppy)");
+                    if (doc()) {
+                        maybe_trigger_tracking_sync(doc()->get_path());
+                    }
+                } else if (*idx == -2) {
+                    show_text_prompt(search_query.toStdWString(), [this, parsed](std::wstring new_query) {
+                        prompt_track_work_search(parsed, QString::fromStdWString(new_query));
+                    });
+                }
+            },
+            [](int*) {}
+        );
+
+        if (selector) {
+            selector->enable_cover_mode(32, 44);
+            for (size_t i = 0; i < candidates.size(); i++) {
+                if (!candidates[i].cover_url.isEmpty()) {
+                    tracker_manager->fetch_image(candidates[i].cover_url, [selector, i](const QPixmap& pm) {
+                        if (!pm.isNull() && selector) {
+                            selector->set_row_icon((int)i, TrackerManager::create_cover_icon(pm, 32, 44));
+                        }
+                    });
+                }
+            }
+        }
+        show_current_widget();
+    });
+}
+
+void MainWidget::handle_track_work() {
+    if (!doc() || !db_manager || !tracker_manager) {
+        show_error_message(L"No active document to track");
+        return;
+    }
+
+    QString current_file = QString::fromStdWString(doc()->get_path());
+    ParsedWorkInfo parsed = TrackerManager::parse_work_info(current_file);
+    if (parsed.series_path.isEmpty()) {
+        show_error_message(L"Could not determine series directory");
+        return;
+    }
+
+    TrackedWork work;
+    bool found = db_manager->select_tracked_work(parsed.series_path.toStdWString(), work);
+
+    if (found && work.is_tracking) {
+        std::vector<std::wstring> options;
+        std::vector<std::wstring> descs;
+        std::vector<int> actions;
+
+        if (work.anilist_id > 0) {
+            options.push_back(L"Open series on AniList in browser");
+            descs.push_back(L"https://anilist.co/manga/" + std::to_wstring(work.anilist_id));
+            actions.push_back(0);
+        } else {
+            options.push_back(L"Search series on AniList in browser");
+            descs.push_back(L"Find and view this title on anilist.co");
+            actions.push_back(0);
+        }
+
+        std::wstring anilist_info = (work.anilist_id > 0) ? (L" (AniList #" + std::to_wstring(work.anilist_id) + L")") : L"";
+        options.push_back(L"Disable tracking for this series");
+        descs.push_back(L"Active series: " + work.title.toStdWString() + anilist_info);
+        actions.push_back(1);
+
+        options.push_back(L"Search / Re-link on AniList");
+        descs.push_back(L"Search AniList to link a different manga entry");
+        actions.push_back(2);
+
+        options.push_back(L"Edit series title");
+        descs.push_back(L"Rename series title in database");
+        actions.push_back(3);
+
+        options.push_back(L"Sync current progress now");
+        descs.push_back(L"Force sync: Vol " + std::to_wstring(parsed.volume) + L" / Ch " + std::to_wstring((int)parsed.chapter));
+        actions.push_back(4);
+
+        auto* selector = set_filtered_select_menu<int>(this, false, true, { options, descs }, actions, -1,
+            [this, parsed, work](int* action) {
+                if (!action) return;
+                if (*action == 0) {
+                    if (work.anilist_id > 0) {
+                        open_web_url(QStringLiteral("https://anilist.co/manga/%1").arg(work.anilist_id).toStdWString());
+                    } else {
+                        QString url = QStringLiteral("https://anilist.co/search/manga?search=%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(work.title)));
+                        open_web_url(url.toStdWString());
+                    }
+                } else if (*action == 1) {
+                    db_manager->set_work_tracking_status(parsed.series_path.toStdWString(), false);
+                    set_status_message(L"Tracking disabled for: " + work.title.toStdWString());
+                } else if (*action == 2) {
+                    prompt_track_work_search(parsed, work.title);
+                } else if (*action == 3) {
+                    show_text_prompt(work.title.toStdWString(), [this, parsed, work](std::wstring new_title) {
+                        TrackedWork updated = work;
+                        updated.title = QString::fromStdWString(new_title);
+                        db_manager->save_tracked_work(updated);
+                        set_status_message(L"Updated title to: " + new_title);
+                    });
+                } else if (*action == 4) {
+                    TrackedWork reset_work = work;
+                    reset_work.last_volume = 0;
+                    reset_work.last_chapter = 0.0f;
+                    db_manager->save_tracked_work(reset_work);
+                    if (doc()) {
+                        maybe_trigger_tracking_sync(doc()->get_path());
+                    }
+                }
+            },
+            [](int*) {}
+        );
+
+        show_current_widget();
+        return;
+    }
+
+    QString search_initial = (found && !work.title.isEmpty()) ? work.title : parsed.title;
+    prompt_track_work_search(parsed, search_initial);
+}
+
+void MainWidget::handle_untrack_work() {
+    if (!doc() || !db_manager) return;
+    ParsedWorkInfo parsed = TrackerManager::parse_work_info(QString::fromStdWString(doc()->get_path()));
+    db_manager->set_work_tracking_status(parsed.series_path.toStdWString(), false);
+    set_status_message(L"Tracking DISABLED for this series");
+}
+
+void MainWidget::handle_tracking_status() {
+    if (!doc() || !db_manager) return;
+    ParsedWorkInfo parsed = TrackerManager::parse_work_info(QString::fromStdWString(doc()->get_path()));
+    TrackedWork work;
+    bool found = db_manager->select_tracked_work(parsed.series_path.toStdWString(), work);
+    if (found && work.is_tracking) {
+        std::wstring msg = L"Tracking: ON | " + work.title.toStdWString();
+        if (work.anilist_id > 0) msg += L" (AniList #" + std::to_wstring(work.anilist_id) + L")";
+        msg += L" | Progress: Vol " + std::to_wstring(work.last_volume) + L" Ch " + std::to_wstring((int)work.last_chapter);
+        if (work.anilist_id > 0) {
+            msg += L" — :open_anilist to view online";
+        }
+        set_status_message(msg);
+    } else {
+        std::wstring detected = (found && !work.title.isEmpty()) ? work.title.toStdWString() : parsed.title.toStdWString();
+        std::wstring msg = L"Tracking: OFF | Detected: '" + detected + L"' (Vol " + std::to_wstring(parsed.volume) + L") — Run :track_work to enable";
+        set_status_message(msg);
+    }
+}
+
+void MainWidget::handle_open_anilist() {
+    if (!doc() || !db_manager) {
+        show_error_message(L"No active document");
+        return;
+    }
+
+    ParsedWorkInfo parsed = TrackerManager::parse_work_info(QString::fromStdWString(doc()->get_path()));
+    TrackedWork work;
+    bool found = db_manager->select_tracked_work(parsed.series_path.toStdWString(), work);
+
+    if (found && work.anilist_id > 0) {
+        QString url = QStringLiteral("https://anilist.co/manga/%1").arg(work.anilist_id);
+        open_web_url(url.toStdWString());
+        set_status_message(L"Opening AniList: " + url.toStdWString());
+    } else {
+        QString q = (found && !work.title.isEmpty()) ? work.title : parsed.title;
+        if (!q.isEmpty()) {
+            QString url = QStringLiteral("https://anilist.co/search/manga?search=%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(q)));
+            open_web_url(url.toStdWString());
+            set_status_message(L"Searching AniList for: " + q.toStdWString());
+        } else {
+            show_error_message(L"Could not determine series title for AniList");
+        }
+    }
+}
+
+void MainWidget::handle_open_tracked_works() {
+    if (!db_manager || !tracker_manager) return;
+    std::vector<TrackedWork> works;
+    db_manager->select_all_tracked_works(works);
+    if (works.empty()) {
+        show_error_message(L"No tracked works in database. Run :track_work on a manga/book.");
+        return;
+    }
+
+    std::vector<std::wstring> col_titles;
+    std::vector<std::wstring> col_details;
+    std::vector<int> indices;
+
+    for (size_t i = 0; i < works.size(); i++) {
+        std::wstring t = works[i].title.toStdWString();
+        if (works[i].is_tracking) {
+            t += L" [Tracking: ON]";
+        } else {
+            t += L" [Tracking: OFF]";
+        }
+        col_titles.push_back(t);
+
+        std::wstring d = L"Vol " + std::to_wstring(works[i].last_volume);
+        if (works[i].last_chapter > 0.0f) {
+            d += L" Ch " + std::to_wstring((int)works[i].last_chapter);
+        }
+        if (works[i].anilist_id > 0) {
+            d += L" | AniList #" + std::to_wstring(works[i].anilist_id);
+        }
+        col_details.push_back(d);
+        indices.push_back((int)i);
+    }
+
+    auto* selector = set_filtered_select_menu<int>(this, false, true, { col_titles, col_details }, indices, -1,
+        [this, works](int* idx) {
+            if (!idx || *idx < 0 || *idx >= (int)works.size()) return;
+            const auto& work = works[*idx];
+
+            std::vector<std::wstring> opts;
+            std::vector<std::wstring> opt_descs;
+            std::vector<int> actions;
+
+            if (work.anilist_id > 0) {
+                opts.push_back(L"Open on AniList in browser");
+                opt_descs.push_back(L"https://anilist.co/manga/" + std::to_wstring(work.anilist_id));
+                actions.push_back(1);
+            }
+            opts.push_back(L"Open series directory");
+            opt_descs.push_back(work.series_path.toStdWString());
+            actions.push_back(2);
+
+            opts.push_back(work.is_tracking ? L"Disable tracking" : L"Enable tracking");
+            opt_descs.push_back(work.title.toStdWString());
+            actions.push_back(3);
+
+            opts.push_back(L"Search / Re-link on AniList");
+            opt_descs.push_back(L"Update AniList ID and cover");
+            actions.push_back(4);
+
+            auto* sub_selector = set_filtered_select_menu<int>(this, false, true, { opts, opt_descs }, actions, -1,
+                [this, work](int* act) {
+                    if (!act) return;
+                    if (*act == 1) {
+                        open_web_url(QStringLiteral("https://anilist.co/manga/%1").arg(work.anilist_id).toStdWString());
+                    } else if (*act == 2) {
+                        open_file_url(work.series_path.toStdWString(), true);
+                    } else if (*act == 3) {
+                        db_manager->set_work_tracking_status(work.series_path.toStdWString(), !work.is_tracking);
+                        set_status_message(work.is_tracking ? L"Tracking disabled" : L"Tracking enabled");
+                    } else if (*act == 4) {
+                        ParsedWorkInfo p;
+                        p.series_path = work.series_path;
+                        p.title = work.title;
+                        p.volume = work.last_volume;
+                        p.chapter = work.last_chapter;
+                        prompt_track_work_search(p, work.title);
+                    }
+                },
+                [](int*) {}
+            );
+            show_current_widget();
+        },
+        [](int*) {}
+    );
+
+    if (selector) {
+        selector->enable_cover_mode(32, 44);
+        for (size_t i = 0; i < works.size(); i++) {
+            QString cover = works[i].cover_url.isEmpty() ? tracker_manager->find_local_cover(works[i].series_path) : works[i].cover_url;
+            if (!cover.isEmpty()) {
+                tracker_manager->fetch_image(cover, [selector, i](const QPixmap& pm) {
+                    if (!pm.isNull() && selector) {
+                        selector->set_row_icon((int)i, TrackerManager::create_cover_icon(pm, 32, 44));
+                    }
+                });
+            } else if (works[i].anilist_id > 0) {
+                std::wstring s_path = works[i].series_path.toStdWString();
+                tracker_manager->fetch_cover_by_anilist_id(works[i].anilist_id, [this, selector, i, s_path](const QString& cover_url, const QPixmap& pm) {
+                    if (!cover_url.isEmpty() && db_manager) {
+                        db_manager->update_work_cover(s_path, cover_url.toStdWString());
+                    }
+                    if (!pm.isNull() && selector) {
+                        selector->set_row_icon((int)i, TrackerManager::create_cover_icon(pm, 32, 44));
+                    }
+                });
+            }
+        }
+    }
+    show_current_widget();
 }
 
 

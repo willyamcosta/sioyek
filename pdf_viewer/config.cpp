@@ -125,7 +125,7 @@ float MOVE_SCREEN_PERCENTAGE = 0.5f;
 unsigned int CACHE_INVALID_MILIES = 1000;
 int PERSIST_MILIES = 1000 * 60;
 int PAGE_PADDINGS = 0;
-int MAX_PENDING_REQUESTS = 31;
+int MAX_PENDING_REQUESTS = 64;
 bool FLAT_TABLE_OF_CONTENTS = false;
 bool USE_PAGE_LABELS_IN_TABLE_OF_CONTENTS = false;
 bool SHOULD_USE_MULTIPLE_MONITORS = false;
@@ -179,6 +179,10 @@ bool PRESERVE_ZOOM_ON_ADJACENT_DOCUMENT_OPEN = true;
 bool CONTINUOUS_ADJACENT_DOCUMENT_SCROLL = false;
 int CONTINUOUS_DOCUMENT_SCROLL_WINDOW = 2;
 int CONTINUOUS_SCROLL_PRERENDER_PAGES = 3;
+std::wstring ANILIST_TOKEN = L"";
+std::wstring FLOPPY_URL = L"";
+std::wstring FLOPPY_TOKEN = L"";
+bool TRACKER_AUTO_NOTIFY = true;
 
 #ifdef SIOYEK_MOBILE
 std::wstring STARTUP_COMMANDS = L"toggle_mouse_drag_mode;toggle_fullscreen";
@@ -1027,6 +1031,7 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_bool(L"prerender_next_page_presentation", &PRERENDER_NEXT_PAGE);
     add_bool(L"highlight_middle_click", &HIGHLIGHT_MIDDLE_CLICK);
     add_bool(L"auto_rename_downloaded_papers", &AUTO_RENAME_DOWNLOADED_PAPERS);
+    add_bool(L"tracker_auto_notify", &TRACKER_AUTO_NOTIFY);
     add_bool(L"super_fast_search", &SUPER_FAST_SEARCH);
     add_bool(L"incremental_search", &INCREMENTAL_SEARCH);
     add_bool(L"show_closest_bookmark_in_statusbar", &SHOW_CLOSEST_BOOKMARK_IN_STATUSBAR);
@@ -1089,6 +1094,9 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_string(L"right_status_bar_format", &RIGHT_STATUS_BAR_FORMAT);
     add_string(L"epub_css", &EPUB_CSS);
     add_string(L"tag_font_face", &TAG_FONT_FACE);
+    add_string(L"anilist_token", &ANILIST_TOKEN);
+    add_string(L"floppy_url", &FLOPPY_URL);
+    add_string(L"floppy_token", &FLOPPY_TOKEN);
     add_macro(L"startup_commands", &STARTUP_COMMANDS);
     add_macro(L"shift_click_command", &SHIFT_CLICK_COMMAND);
     add_macro(L"resize_command", &RESIZE_COMMAND);

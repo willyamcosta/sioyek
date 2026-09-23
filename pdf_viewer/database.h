@@ -7,6 +7,7 @@
 #include <string>
 #include "sqlite3.h"
 #include "book.h"
+#include "tracker.h"
 
 class CachedChecksummer;
 
@@ -30,6 +31,7 @@ private:
     void create_tables();
     bool create_document_hash_table();
     bool create_highlights_table();
+    bool create_tracked_works_table();
 public:
     bool open(const std::wstring& local_db_file_path, const std::wstring& global_db_file_path);
     bool select_opened_book(const std::string& book_path, std::vector<OpenedBookState>& out_result);
@@ -145,6 +147,13 @@ public:
 
     bool generic_insert_run_query(std::string table_name,
         std::vector<std::pair<std::string, QVariant>> values);
+
+    bool select_tracked_work(const std::wstring& series_path, TrackedWork& out_work);
+    bool select_all_tracked_works(std::vector<TrackedWork>& out_works);
+    bool save_tracked_work(const TrackedWork& work);
+    bool set_work_tracking_status(const std::wstring& series_path, bool is_tracking);
+    bool update_work_progress(const std::wstring& series_path, int volume, float chapter);
+    bool update_work_cover(const std::wstring& series_path, const std::wstring& cover_url);
 };
 
 

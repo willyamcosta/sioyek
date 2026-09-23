@@ -104,6 +104,7 @@ HEADERS += pdf_viewer/book.h \
            pdf_viewer/utf8/unchecked.h \
            pdf_viewer/RunGuard.h \
            pdf_viewer/OpenWithApplication.h \
+           pdf_viewer/tracker.h \
            fzf/fzf.h
 
 
@@ -124,6 +125,7 @@ SOURCES += pdf_viewer/book.cpp \
            pdf_viewer/ui.cpp \
            pdf_viewer/path.cpp \
            pdf_viewer/utils.cpp \
+           pdf_viewer/tracker.cpp \
            pdf_viewer/mysortfilterproxymodel.cpp \
            pdf_viewer/RunGuard.cpp \
            pdf_viewer/OpenWithApplication.cpp \

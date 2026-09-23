@@ -1056,17 +1056,25 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
             document_to_overview_rect(DocumentRect(slice_document_rect, page_number)) :
             DocumentRect(slice_document_rect, page_number).to_window_normalized(document_view);
 
-        // we add some slack so we pre-render nearby slices
+        // we add generous slack so we pre-render nearby slices before scrolling into view
         NormalizedWindowRect full_window_rect;
-        full_window_rect.x0 = -1;
-        full_window_rect.x1 = 1;
-        full_window_rect.y0 = -1.5f;
-        full_window_rect.y1 = 1.5f;
+        full_window_rect.x0 = -1.0f;
+        full_window_rect.x1 = 1.0f;
+        full_window_rect.y0 = -3.5f;
+        full_window_rect.y1 = 3.5f;
 
-        // don't render invisible slices
+        // don't render invisible slices outside the prerender window
         if (is_sliced && (!rects_intersect(slice_window_rect, full_window_rect))) {
             continue;
         }
+
+        NormalizedWindowRect screen_rect;
+        screen_rect.x0 = -1.0f;
+        screen_rect.x1 = 1.0f;
+        screen_rect.y0 = -1.0f;
+        screen_rect.y1 = 1.0f;
+
+        bool is_visible_slice = !is_sliced || rects_intersect(slice_window_rect, screen_rect);
 
         GLuint texture = pdf_renderer->find_rendered_page(render_document->get_path(),
             render_page_number,
@@ -1077,10 +1085,15 @@ void PdfViewOpenGLWidget::render_page(int page_number, bool in_overview, ColorPa
             zoom_level,
             devicePixelRatioF(),
             &rendered_width,
-            &rendered_height);
+            &rendered_height,
+            !is_visible_slice);
 
         if (is_helper && !texture){
             is_helper_waiting_for_render = true;
+        }
+
+        if (is_sliced && !is_visible_slice) {
+            continue;
         }
 
 
@@ -1370,6 +1383,23 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
     std::vector<int> visible_pages;
     document_view->get_visible_pages(document_view->get_view_height(), visible_pages);
 
+    std::vector<std::pair<std::wstring, int>> visible_doc_pages;
+    if (document_view->is_presentation_mode()) {
+        auto maybe_pres = document_view->get_presentation_page_number();
+        if (maybe_pres.has_value() && doc()) {
+            visible_doc_pages.push_back({ doc()->get_path(), maybe_pres.value() });
+        }
+    } else {
+        for (int p : visible_pages) {
+            Document* d = document_view->get_document_for_page(p);
+            int local_p = document_view->get_local_page_for_page(p);
+            if (d && local_p >= 0) {
+                visible_doc_pages.push_back({ d->get_path(), local_p });
+            }
+        }
+    }
+    pdf_renderer->set_visible_pages(visible_doc_pages);
+
     clear_background_color();
 
     std::vector<PdfLink> all_visible_links;
@@ -1391,7 +1421,8 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                         document_view->get_zoom_level(),
                         devicePixelRatioF(),
                         nullptr,
-                        nullptr);
+                        nullptr,
+                        true);
                 }
             }
             for (int i = 0; i < NUM_PRERENDERED_PREV_SLIDES; i++) {
@@ -1406,7 +1437,8 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                         document_view->get_zoom_level(),
                         devicePixelRatioF(),
                         nullptr,
-                        nullptr);
+                        nullptr,
+                        true);
                 }
             }
         }
@@ -1456,20 +1488,23 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
 
                 PagelessDocumentRect page_rect({ 0, 0, page_width, page_height });
                 int nh, nv;
-                num_slices_for_page_rect(page_rect, &nh, &nv);
+                bool is_sliced = num_slices_for_page_rect(page_rect, &nh, &nv);
 
-                for (int k = 0; k < nh * nv; k++) {
+                int slice_count = is_sliced ? (nh * nv) : 1;
+                for (int k = 0; k < slice_count; k++) {
+                    int slice_idx = is_sliced ? k : -1;
                     pdf_renderer->find_rendered_page(
                         prerender_document->get_path(),
                         prerender_page,
                         prerender_document->should_render_pdf_annotations(),
-                        k,
+                        slice_idx,
                         nh,
                         nv,
                         document_view->get_zoom_level(),
                         devicePixelRatioF(),
                         nullptr,
-                        nullptr);
+                        nullptr,
+                        true);
                 }
             };
 
@@ -1484,31 +1519,12 @@ void PdfViewOpenGLWidget::my_render(QPainter* painter) {
                 backward_pages = std::max(backward_pages, std::min(CONTINUOUS_SCROLL_PRERENDER_PAGES, 2));
             }
 
-            for (int i = 0; i < (forward_pages + 1); i++) {
+            for (int i = 1; i <= forward_pages; i++) {
                 prerender_page_fn(max_page + i);
             }
             for (int i = 1; i <= backward_pages; i++) {
-                prerender_page_fn(min_page - i);
-            }
-
-            if (document_view->is_continuous_document_scroll_active() && CONTINUOUS_SCROLL_PRERENDER_PAGES > 0) {
-                Document* current_doc = doc();
-                if (current_doc) {
-                    int current_page = document_view->get_center_page_number();
-                    int current_num_pages = current_doc->num_pages();
-
-                    // Near end of current document: pre-render start of next document
-                    if (current_page >= current_num_pages - 4) {
-                        for (int vp = max_page + 1; vp <= max_page + CONTINUOUS_SCROLL_PRERENDER_PAGES + 2; vp++) {
-                            prerender_page_fn(vp);
-                        }
-                    }
-                    // Near start of current document: pre-render end of previous document
-                    if (current_page <= 4) {
-                        for (int vp = min_page - 1; vp >= min_page - (CONTINUOUS_SCROLL_PRERENDER_PAGES + 2); vp--) {
-                            prerender_page_fn(vp);
-                        }
-                    }
+                if (min_page - i >= 0) {
+                    prerender_page_fn(min_page - i);
                 }
             }
         }

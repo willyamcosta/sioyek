@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include <QListWidget>
+#include <QIcon>
 #include <QScroller>
 #include <qsizepolicy.h>
 #include <qapplication.h>
@@ -162,6 +163,8 @@ public:
     void handle_delete();
     void handle_edit();
     QString get_selected_item();
+    virtual void enable_cover_mode(int icon_w = 32, int icon_h = 44) {}
+    virtual void set_row_icon(int row, const QIcon& icon, int col = 0) {}
 
 
 #ifndef SIOYEK_QT6
@@ -329,6 +332,30 @@ public:
 
     void set_on_edit_function(std::function<void(T*)> edit_func) {
         on_edit_function = edit_func;
+    }
+
+    void enable_cover_mode(int icon_w = 32, int icon_h = 44) override {
+        QTableView* table_view = dynamic_cast<QTableView*>(this->get_view());
+        if (table_view) {
+            table_view->setIconSize(QSize(icon_w, icon_h));
+            table_view->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+        }
+    }
+
+    void set_row_icon(int row, const QIcon& icon, int col = 0) override {
+        if (this->proxy_model) {
+            if (auto sm = dynamic_cast<QStandardItemModel*>(this->proxy_model->sourceModel())) {
+                if (row >= 0 && row < sm->rowCount() && col >= 0 && col < sm->columnCount()) {
+                    if (auto item = sm->item(row, col)) {
+                        item->setIcon(icon);
+                    }
+                }
+            }
+        }
+        if (auto view = dynamic_cast<QTableView*>(this->get_view())) {
+            view->resizeRowToContents(row);
+            view->viewport()->update();
+        }
     }
 
     void set_value_second_item(T value, QString str) {

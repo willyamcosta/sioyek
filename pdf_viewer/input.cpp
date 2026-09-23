@@ -4059,6 +4059,61 @@ public:
     bool requires_document() { return false; }
 };
 
+class TrackWorkCommand : public Command {
+public:
+    static inline const std::string cname = "track_work";
+    static inline const std::string hname = "Setup or manage progress tracking (AniList / Floppy)";
+    TrackWorkCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->handle_track_work();
+    }
+    bool requires_document() { return true; }
+};
+
+class UntrackWorkCommand : public Command {
+public:
+    static inline const std::string cname = "untrack_work";
+    static inline const std::string hname = "Disable progress tracking for the current work";
+    UntrackWorkCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->handle_untrack_work();
+    }
+    bool requires_document() { return true; }
+};
+
+class TrackingStatusCommand : public Command {
+public:
+    static inline const std::string cname = "tracking_status";
+    static inline const std::string hname = "Show tracking status for the current work";
+    TrackingStatusCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->handle_tracking_status();
+    }
+    bool requires_document() { return true; }
+};
+
+class OpenAnilistCommand : public Command {
+public:
+    static inline const std::string cname = "open_anilist";
+    static inline const std::string hname = "Open current work on AniList in web browser";
+    OpenAnilistCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->handle_open_anilist();
+    }
+    bool requires_document() { return true; }
+};
+
+class OpenTrackedWorksCommand : public Command {
+public:
+    static inline const std::string cname = "open_tracked_works";
+    static inline const std::string hname = "List all tracked manga/books with covers and progress";
+    OpenTrackedWorksCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->handle_open_tracked_works();
+    }
+    bool requires_document() { return false; }
+};
+
 class CopyCommand : public Command {
 public:
     static inline const std::string cname = "copy";
@@ -7198,6 +7253,11 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<OpenAllDocsCommand>();
     register_command<OpenDocumentEmbeddedCommand>();
     register_command<OpenDocumentEmbeddedFromCurrentPathCommand>();
+    register_command<TrackWorkCommand>();
+    register_command<UntrackWorkCommand>();
+    register_command<TrackingStatusCommand>();
+    register_command<OpenAnilistCommand>();
+    register_command<OpenTrackedWorksCommand>();
     register_command<CopyCommand>();
 #ifdef Q_OS_MACOS
     register_command<MacosLookupCommand>();

@@ -565,3 +565,6 @@ zoom_in_overview
 zoom_out
 zoom_out_cursor
 zoom_out_overview
+track_work
+untrack_work
+tracking_status

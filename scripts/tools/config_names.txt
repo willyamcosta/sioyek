@@ -259,3 +259,7 @@ execute_command_y
 highlight_color_z
 search_url_z
 execute_command_z
+anilist_token
+floppy_url
+floppy_token
+tracker_auto_notify
