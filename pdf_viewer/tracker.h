@@ -33,6 +33,27 @@ struct TrackedWork {
     bool is_tracking = false;  // Explicit opt-in! False by default
     int last_volume = 0;       // Last tracked volume
     float last_chapter = 0.0f; // Last tracked chapter
+    QString last_read_file;    // Exact file path last opened in this series
+    qint64 last_read_time = 0; // Unix epoch ms of last reading activity
+    QString reading_status = QStringLiteral("CURRENT"); // CURRENT, COMPLETED, PAUSED, PLANNING, DROPPED
+    int total_volumes = 0;     // Total volumes (from AniList)
+    int total_chapters = 0;    // Total chapters (from AniList)
+
+    QString status_badge() const {
+        if (!is_tracking) {
+            return QStringLiteral("[Untracked]");
+        }
+        if (reading_status == QLatin1String("COMPLETED")) {
+            return QStringLiteral("[Completed]");
+        } else if (reading_status == QLatin1String("PAUSED")) {
+            return QStringLiteral("[On Hold]");
+        } else if (reading_status == QLatin1String("PLANNING")) {
+            return QStringLiteral("[Plan to Read]");
+        } else if (reading_status == QLatin1String("DROPPED")) {
+            return QStringLiteral("[Dropped]");
+        }
+        return QStringLiteral("[Reading]");
+    }
 };
 
 struct ParsedWorkInfo {
@@ -93,9 +114,9 @@ public:
     // Download or load from disk/memory cache a cover image
     void fetch_image(const QString& url_or_path, std::function<void(const QPixmap& pixmap)> callback);
 
-    // Query AniList GraphQL API for media details (cover image) by media ID
+    // Query AniList GraphQL API for media details (cover image, volumes, chapters) by media ID
     void fetch_cover_by_anilist_id(int media_id,
-                                  std::function<void(const QString& cover_url, const QPixmap& pixmap)> callback);
+                                  std::function<void(const QString& cover_url, const QPixmap& pixmap, int total_vols, int total_chs)> callback);
 
     // Query AniList GraphQL API for matching manga titles (including covers)
     void search_anilist(const QString& title,
@@ -107,6 +128,12 @@ public:
                                float chapter,
                                const QString& token,
                                std::function<void(bool success, const QString& message)> callback);
+
+    // Sync reading status to AniList
+    void sync_anilist_status(int media_id,
+                             const QString& status,
+                             const QString& token,
+                             std::function<void(bool success, const QString& message)> callback);
 
     // Sync volume/chapter progress to Floppy REST API
     void sync_floppy_progress(const QString& series_title,

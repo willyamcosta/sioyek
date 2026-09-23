@@ -154,6 +154,10 @@ public:
     bool set_work_tracking_status(const std::wstring& series_path, bool is_tracking);
     bool update_work_progress(const std::wstring& series_path, int volume, float chapter);
     bool update_work_cover(const std::wstring& series_path, const std::wstring& cover_url);
+    bool update_work_last_read(const std::wstring& series_path, const std::wstring& file_path, qint64 timestamp);
+    bool update_work_reading_status(const std::wstring& series_path, const std::wstring& status);
+    bool update_work_metadata(const std::wstring& series_path, const std::wstring& cover_url, int total_vols, int total_chs);
+    bool delete_tracked_work(const std::wstring& series_path);
 };
 
 

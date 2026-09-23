@@ -4114,6 +4114,28 @@ public:
     bool requires_document() { return false; }
 };
 
+class LibraryCommand : public Command {
+public:
+    static inline const std::string cname = "library";
+    static inline const std::string hname = "Open library view and resume reading tracked works";
+    LibraryCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->handle_open_tracked_works();
+    }
+    bool requires_document() { return false; }
+};
+
+class ManageLibraryCommand : public Command {
+public:
+    static inline const std::string cname = "manage_library";
+    static inline const std::string hname = "Manage tracked works, reading status, and chapters";
+    ManageLibraryCommand(MainWidget* w) : Command(cname, w) {};
+    void perform() {
+        widget->handle_manage_library();
+    }
+    bool requires_document() { return false; }
+};
+
 class CopyCommand : public Command {
 public:
     static inline const std::string cname = "copy";
@@ -7258,6 +7280,8 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<TrackingStatusCommand>();
     register_command<OpenAnilistCommand>();
     register_command<OpenTrackedWorksCommand>();
+    register_command<LibraryCommand>();
+    register_command<ManageLibraryCommand>();
     register_command<CopyCommand>();
 #ifdef Q_OS_MACOS
     register_command<MacosLookupCommand>();

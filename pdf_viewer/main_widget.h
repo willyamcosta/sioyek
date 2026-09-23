@@ -560,6 +560,11 @@ public:
     void handle_tracking_status();
     void handle_open_anilist();
     void handle_open_tracked_works();
+    void handle_manage_library();
+    QString find_series_resume_file(const TrackedWork& work);
+    void resume_reading_work(const TrackedWork& work);
+    void prompt_series_volume_picker(const TrackedWork& work);
+    void prompt_change_reading_status(const TrackedWork& work);
     void maybe_trigger_tracking_sync(const std::wstring& document_path);
     void prompt_track_work_search(const ParsedWorkInfo& parsed, const QString& search_query);
     void validate_render();

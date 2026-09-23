@@ -2113,8 +2113,13 @@ bool DatabaseManager::create_tracked_works_table() {
 
     char* error_message = nullptr;
     int error_code = sqlite3_exec(local_db, create_sql, null_callback, 0, &error_message);
-    // Add cover_url column if migrating from previous table schema
+    // Add columns if migrating from previous table schema
     sqlite3_exec(local_db, "ALTER TABLE tracked_works ADD COLUMN cover_url TEXT DEFAULT '';", null_callback, 0, nullptr);
+    sqlite3_exec(local_db, "ALTER TABLE tracked_works ADD COLUMN last_read_file TEXT DEFAULT '';", null_callback, 0, nullptr);
+    sqlite3_exec(local_db, "ALTER TABLE tracked_works ADD COLUMN last_read_time INTEGER DEFAULT 0;", null_callback, 0, nullptr);
+    sqlite3_exec(local_db, "ALTER TABLE tracked_works ADD COLUMN reading_status TEXT DEFAULT 'CURRENT';", null_callback, 0, nullptr);
+    sqlite3_exec(local_db, "ALTER TABLE tracked_works ADD COLUMN total_volumes INTEGER DEFAULT 0;", null_callback, 0, nullptr);
+    sqlite3_exec(local_db, "ALTER TABLE tracked_works ADD COLUMN total_chapters INTEGER DEFAULT 0;", null_callback, 0, nullptr);
     return handle_error("create_tracked_works_table", error_code, error_message);
 }
 
@@ -2131,6 +2136,13 @@ static int tracked_work_select_callback(void* res_ptr, int argc, char** argv, ch
         if (argv[7]) work->is_tracking = (atoi(argv[7]) != 0);
         if (argv[8]) work->last_volume = atoi(argv[8]);
         if (argv[9]) work->last_chapter = atof(argv[9]);
+        if (argc >= 15) {
+            if (argv[10]) work->last_read_file = QString::fromUtf8(argv[10]);
+            if (argv[11]) work->last_read_time = atoll(argv[11]);
+            if (argv[12]) work->reading_status = QString::fromUtf8(argv[12]);
+            if (argv[13]) work->total_volumes = atoi(argv[13]);
+            if (argv[14]) work->total_chapters = atoi(argv[14]);
+        }
     }
     return 0;
 }
@@ -2138,7 +2150,7 @@ static int tracked_work_select_callback(void* res_ptr, int argc, char** argv, ch
 bool DatabaseManager::select_tracked_work(const std::wstring& series_path, TrackedWork& out_work) {
     out_work = TrackedWork();
     std::wstringstream ss;
-    ss << L"SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter FROM tracked_works WHERE series_path='" << esc(series_path) << L"';";
+    ss << L"SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter, last_read_file, last_read_time, reading_status, total_volumes, total_chapters FROM tracked_works WHERE series_path='" << esc(series_path) << L"';";
     char* error_message = nullptr;
     int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), tracked_work_select_callback, &out_work, &error_message);
     handle_error("select_tracked_work", error_code, error_message);
@@ -2159,6 +2171,13 @@ static int all_tracked_works_callback(void* res_ptr, int argc, char** argv, char
         if (argv[7]) work.is_tracking = (atoi(argv[7]) != 0);
         if (argv[8]) work.last_volume = atoi(argv[8]);
         if (argv[9]) work.last_chapter = atof(argv[9]);
+        if (argc >= 15) {
+            if (argv[10]) work.last_read_file = QString::fromUtf8(argv[10]);
+            if (argv[11]) work.last_read_time = atoll(argv[11]);
+            if (argv[12]) work.reading_status = QString::fromUtf8(argv[12]);
+            if (argv[13]) work.total_volumes = atoi(argv[13]);
+            if (argv[14]) work.total_chapters = atoi(argv[14]);
+        }
     }
     works->push_back(work);
     return 0;
@@ -2166,7 +2185,19 @@ static int all_tracked_works_callback(void* res_ptr, int argc, char** argv, char
 
 bool DatabaseManager::select_all_tracked_works(std::vector<TrackedWork>& out_works) {
     out_works.clear();
-    const char* sql = "SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter FROM tracked_works ORDER BY is_tracking DESC, id DESC;";
+    const char* sql = "SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter, last_read_file, last_read_time, reading_status, total_volumes, total_chapters "
+                      "FROM tracked_works "
+                      "ORDER BY "
+                      "  last_read_time DESC, "
+                      "  CASE reading_status "
+                      "    WHEN 'CURRENT' THEN 1 "
+                      "    WHEN 'PLANNING' THEN 2 "
+                      "    WHEN 'PAUSED' THEN 3 "
+                      "    WHEN 'COMPLETED' THEN 4 "
+                      "    WHEN 'DROPPED' THEN 5 "
+                      "    ELSE 6 "
+                      "  END ASC, "
+                      "  title COLLATE NOCASE ASC;";
     char* error_message = nullptr;
     int error_code = sqlite3_exec(local_db, sql, all_tracked_works_callback, &out_works, &error_message);
     return handle_error("select_all_tracked_works", error_code, error_message);
@@ -2174,7 +2205,7 @@ bool DatabaseManager::select_all_tracked_works(std::vector<TrackedWork>& out_wor
 
 bool DatabaseManager::save_tracked_work(const TrackedWork& work) {
     std::wstringstream ss;
-    ss << L"INSERT INTO tracked_works (series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter) "
+    ss << L"INSERT INTO tracked_works (series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter, last_read_file, last_read_time, reading_status, total_volumes, total_chapters) "
        << L"VALUES ('" << esc(work.series_path.toStdWString()) << L"', "
        << L"'" << esc(work.title.toStdWString()) << L"', "
        << work.anilist_id << L", "
@@ -2183,7 +2214,12 @@ bool DatabaseManager::save_tracked_work(const TrackedWork& work) {
        << L"'" << esc(work.cover_url.toStdWString()) << L"', "
        << (work.is_tracking ? 1 : 0) << L", "
        << work.last_volume << L", "
-       << work.last_chapter << L") "
+       << work.last_chapter << L", "
+       << L"'" << esc(work.last_read_file.toStdWString()) << L"', "
+       << work.last_read_time << L", "
+       << L"'" << esc(work.reading_status.toStdWString()) << L"', "
+       << work.total_volumes << L", "
+       << work.total_chapters << L") "
        << L"ON CONFLICT(series_path) DO UPDATE SET "
        << L"title=excluded.title, "
        << L"anilist_id=excluded.anilist_id, "
@@ -2192,7 +2228,12 @@ bool DatabaseManager::save_tracked_work(const TrackedWork& work) {
        << L"cover_url=CASE WHEN excluded.cover_url != '' THEN excluded.cover_url ELSE tracked_works.cover_url END, "
        << L"is_tracking=excluded.is_tracking, "
        << L"last_volume=excluded.last_volume, "
-       << L"last_chapter=excluded.last_chapter;";
+       << L"last_chapter=excluded.last_chapter, "
+       << L"last_read_file=CASE WHEN excluded.last_read_file != '' THEN excluded.last_read_file ELSE tracked_works.last_read_file END, "
+       << L"last_read_time=CASE WHEN excluded.last_read_time > 0 THEN excluded.last_read_time ELSE tracked_works.last_read_time END, "
+       << L"reading_status=CASE WHEN excluded.reading_status != '' THEN excluded.reading_status ELSE tracked_works.reading_status END, "
+       << L"total_volumes=CASE WHEN excluded.total_volumes > 0 THEN excluded.total_volumes ELSE tracked_works.total_volumes END, "
+       << L"total_chapters=CASE WHEN excluded.total_chapters > 0 THEN excluded.total_chapters ELSE tracked_works.total_chapters END;";
     char* error_message = nullptr;
     int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
     return handle_error("save_tracked_work", error_code, error_message);
@@ -2224,5 +2265,44 @@ bool DatabaseManager::update_work_cover(const std::wstring& series_path, const s
     char* error_message = nullptr;
     int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
     return handle_error("update_work_cover", error_code, error_message);
+}
+
+bool DatabaseManager::update_work_last_read(const std::wstring& series_path, const std::wstring& file_path, qint64 timestamp) {
+    std::wstringstream ss;
+    ss << L"UPDATE tracked_works SET last_read_file='" << esc(file_path)
+       << L"', last_read_time=" << timestamp
+       << L" WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("update_work_last_read", error_code, error_message);
+}
+
+bool DatabaseManager::update_work_reading_status(const std::wstring& series_path, const std::wstring& status) {
+    std::wstringstream ss;
+    ss << L"UPDATE tracked_works SET reading_status='" << esc(status)
+       << L"' WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("update_work_reading_status", error_code, error_message);
+}
+
+bool DatabaseManager::update_work_metadata(const std::wstring& series_path, const std::wstring& cover_url, int total_vols, int total_chs) {
+    std::wstringstream ss;
+    ss << L"UPDATE tracked_works SET "
+       << L"cover_url=CASE WHEN '" << esc(cover_url) << L"' != '' THEN '" << esc(cover_url) << L"' ELSE cover_url END, "
+       << L"total_volumes=CASE WHEN " << total_vols << L" > 0 THEN " << total_vols << L" ELSE total_volumes END, "
+       << L"total_chapters=CASE WHEN " << total_chs << L" > 0 THEN " << total_chs << L" ELSE total_chapters END "
+       << L"WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("update_work_metadata", error_code, error_message);
+}
+
+bool DatabaseManager::delete_tracked_work(const std::wstring& series_path) {
+    std::wstringstream ss;
+    ss << L"DELETE FROM tracked_works WHERE series_path='" << esc(series_path) << L"';";
+    char* error_message = nullptr;
+    int error_code = sqlite3_exec(local_db, utf8_encode(ss.str()).c_str(), null_callback, 0, &error_message);
+    return handle_error("delete_tracked_work", error_code, error_message);
 }
 
