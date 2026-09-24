@@ -173,9 +173,7 @@ GLuint PdfRenderer::find_rendered_page(std::wstring path, int page, bool should_
             if (cached_resp.pending) continue;
 
             if ((cached_resp.request == req) && (cached_resp.invalid == false)) {
-                if (!is_prerender) {
-                    cached_resp.last_access_time = QDateTime::currentMSecsSinceEpoch();
-                }
+                cached_resp.last_access_time = QDateTime::currentMSecsSinceEpoch();
 
                 if (page_width) *page_width = cached_resp.width;
                 if (page_height) *page_height = cached_resp.height;
@@ -186,7 +184,7 @@ GLuint PdfRenderer::find_rendered_page(std::wstring path, int page, bool should_
                 if (cached_resp.texture != 0) {
                     result = cached_resp.texture;
                 }
-                else {
+                else if (cached_resp.pixmap != nullptr) {
                     glGenTextures(1, &result);
                     glBindTexture(GL_TEXTURE_2D, result);
 
@@ -219,6 +217,7 @@ GLuint PdfRenderer::find_rendered_page(std::wstring path, int page, bool should_
                     pixmap_drop_mutex[cached_resp.thread].lock();
                     pixmaps_to_drop[cached_resp.thread].push_back(cached_resp.pixmap);
                     cached_resp.texture = result;
+                    cached_resp.pixmap = nullptr;
                     pixmap_drop_mutex[cached_resp.thread].unlock();
 
                 }
@@ -311,8 +310,9 @@ void PdfRenderer::delete_old_pages(bool force_all, bool invalidate_all) {
 
     for (size_t i = 0; i < cached_responses.size(); i++) {
         if (!force_all && !invalidate_all &&
-            visible_pages_copy.count({ cached_responses[i].request.path, cached_responses[i].request.page }) > 0) {
-            // Currently visible pages are given priority 0 (most recent access)
+            (cached_responses[i].pending ||
+             visible_pages_copy.count({ cached_responses[i].request.path, cached_responses[i].request.page }) > 0)) {
+            // Currently visible or pending pages are given priority 0 (most recent access)
             cached_response_times.push_back(0);
         }
         else {
@@ -344,13 +344,18 @@ void PdfRenderer::delete_old_pages(bool force_all, bool invalidate_all) {
         unsigned int time_threshold = now - cached_response_times[N - 1];
 
         for (size_t i = 0; i < cached_responses.size(); i++) {
-            // NEVER evict currently visible pages from cache
+            // NEVER evict currently visible or pending pages from cache
+            if (cached_responses[i].pending) {
+                continue;
+            }
             if (visible_pages_copy.count({ cached_responses[i].request.path, cached_responses[i].request.page }) > 0) {
                 continue;
             }
 
+            bool is_old_enough = (now - cached_responses[i].last_access_time) > CACHE_INVALID_MILIES;
+            bool is_cache_overflow = cached_responses.size() > (size_t)(2 * N);
             if ((cached_responses[i].last_access_time < time_threshold)
-                && ((now - cached_responses[i].last_access_time) > CACHE_INVALID_MILIES)) {
+                && (is_old_enough || is_cache_overflow)) {
                 indices_to_delete.push_back(i);
             }
         }
@@ -363,7 +368,7 @@ void PdfRenderer::delete_old_pages(bool force_all, bool invalidate_all) {
         RenderResponse resp = cached_responses[index_to_delete];
 
         pixmap_drop_mutex[resp.thread].lock();
-        if (resp.texture == 0) {
+        if (resp.texture == 0 && resp.pixmap != nullptr) {
             pixmaps_to_drop[resp.thread].push_back(resp.pixmap);
         }
         pixmap_drop_mutex[resp.thread].unlock();
@@ -667,12 +672,6 @@ void PdfRenderer::run(int thread_index) {
                     fz_gamma_pixmap(mupdf_context, rendered_pixmap, GAMMA);
                 }
 
-                RenderResponse resp;
-                resp.thread = thread_index;
-                resp.request = req;
-                resp.texture = 0;
-                resp.invalid = false;
-
                 cached_response_mutex.lock();
                 int index = get_pending_response_index_with_thread_index(req, thread_index);
                 if (index >= 0) {
@@ -682,7 +681,12 @@ void PdfRenderer::run(int thread_index) {
                     cached_responses[index].height = rendered_pixmap->h;
                     cached_responses[index].pending = false;
                 }
-
+                else {
+                    if (rendered_pixmap) {
+                        fz_drop_pixmap(mupdf_context, rendered_pixmap);
+                        rendered_pixmap = nullptr;
+                    }
+                }
                 cached_response_mutex.unlock();
 
                 emit render_advance();
@@ -690,11 +694,20 @@ void PdfRenderer::run(int thread_index) {
             }
             fz_catch(mupdf_context) {
                 std::cerr << "Error: could not render page" << std::endl;
+                cached_response_mutex.lock();
+                int index = get_pending_response_index_with_thread_index(req, thread_index);
+                if (index >= 0) {
+                    cached_responses.erase(cached_responses.begin() + index);
+                }
+                cached_response_mutex.unlock();
             }
         }
+        thread_busy_status[thread_index] = false;
         thread_rendering_mutex[thread_index].unlock();
+        delete_old_pixmaps(thread_index, mupdf_context);
 
     }
+    delete_old_pixmaps(thread_index, mupdf_context);
 }
 
 void PdfRenderer::add_password(std::wstring path, std::string password) {
@@ -744,13 +757,50 @@ bool PdfRenderer::is_busy() {
     return pending_render_requests.size() > 0;
 }
 
+void PdfRenderer::delete_pages_for_document(const std::wstring& doc_path) {
+    if (doc_path.empty()) return;
+
+    // 1. Remove pending requests for this document
+    {
+        std::lock_guard<std::mutex> lock(pending_requests_mutex);
+        for (auto it = pending_render_requests.begin(); it != pending_render_requests.end(); ) {
+            if (it->path == doc_path) {
+                it = pending_render_requests.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    // 2. Remove cached responses and textures for this document
+    {
+        std::lock_guard<std::mutex> lock(cached_response_mutex);
+        for (auto it = cached_responses.begin(); it != cached_responses.end(); ) {
+            if (it->request.path == doc_path) {
+                if (it->texture != 0) {
+                    glDeleteTextures(1, &it->texture);
+                    it->texture = 0;
+                }
+                if (it->pixmap != nullptr) {
+                    std::lock_guard<std::mutex> p_lock(pixmap_drop_mutex[it->thread]);
+                    pixmaps_to_drop[it->thread].push_back(it->pixmap);
+                    it->pixmap = nullptr;
+                }
+                it = cached_responses.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
 void PdfRenderer::free_all_resources_for_document(std::wstring doc_path) {
+    delete_pages_for_document(doc_path);
+
     searching_mutex.lock();
     for (int i = 0; i < num_threads; i++) {
         thread_rendering_mutex[i].lock();
     }
-    
-    delete_old_pages(true, true); // todo: this is overkill, just delete the pixmaps for the document
 
     for (int i = 0; i < num_threads; i++) {
         auto index = std::make_pair(i, doc_path);
@@ -768,6 +818,8 @@ void PdfRenderer::free_all_resources_for_document(std::wstring doc_path) {
 }
 
 void PdfRenderer::close_document(std::wstring doc_path) {
+    delete_pages_for_document(doc_path);
+
     searching_mutex.lock();
     for (int i = 0; i < num_threads; i++) {
         thread_rendering_mutex[i].lock();

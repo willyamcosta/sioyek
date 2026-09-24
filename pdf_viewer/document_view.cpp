@@ -932,6 +932,7 @@ Document* DocumentView::get_document_for_page(int page_number) {
         if (page_number >= 0 && page_number < static_cast<int>(continuous_document_pages.size())) {
             return continuous_document_pages[page_number].document;
         }
+        return nullptr;
     }
     return current_document;
 }
@@ -942,6 +943,7 @@ int DocumentView::get_local_page_for_page(int page_number) {
         if (page_number >= 0 && page_number < static_cast<int>(continuous_document_pages.size())) {
             return continuous_document_pages[page_number].page;
         }
+        return -1;
     }
     return page_number;
 }
