@@ -139,6 +139,7 @@ public:
 
     GLuint find_rendered_page(std::wstring path, int page, bool should_render_annotations, int index, int num_h_slices, int num_v_slices, float zoom_level, float display_scale, int* page_width, int* page_height, bool is_prerender = false);
     void delete_old_pages(bool force_all = false, bool invalidate_all = false);
+    void delete_pages_for_document(const std::wstring& doc_path);
     void set_visible_pages(const std::vector<std::pair<std::wstring, int>>& pages);
     void add_password(std::wstring path, std::string password);
     void debug();
