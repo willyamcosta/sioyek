@@ -105,6 +105,7 @@ HEADERS += pdf_viewer/book.h \
            pdf_viewer/RunGuard.h \
            pdf_viewer/OpenWithApplication.h \
            pdf_viewer/tracker.h \
+           pdf_viewer/gamepad.h \
            fzf/fzf.h
 
 
@@ -120,6 +121,7 @@ SOURCES += pdf_viewer/book.cpp \
            pdf_viewer/pdf_view_opengl_widget.cpp \
            pdf_viewer/checksum.cpp \
            pdf_viewer/new_file_checker.cpp \
+           pdf_viewer/gamepad.cpp \
            pdf_viewer/coordinates.cpp \
            pdf_viewer/sqlite3.c \
            pdf_viewer/ui.cpp \
