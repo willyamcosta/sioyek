@@ -555,6 +555,9 @@ public:
     bool maybe_open_adjacent_document_after_boundary_scroll(float scroll_amount, bool was_truncated);
     void synchronize_continuous_scroll_subdocument();
     void prune_continuous_scroll_cache();
+    bool has_active_menu_widget() const {
+        return !current_widget_stack.empty() || (text_command_line_edit_container != nullptr && text_command_line_edit_container->isVisible());
+    }
     void handle_track_work();
     void handle_untrack_work();
     void handle_tracking_status();

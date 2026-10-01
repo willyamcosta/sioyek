@@ -183,6 +183,9 @@ std::wstring ANILIST_TOKEN = L"";
 std::wstring FLOPPY_URL = L"";
 std::wstring FLOPPY_TOKEN = L"";
 bool TRACKER_AUTO_NOTIFY = true;
+bool GAMEPAD_ENABLED = true;
+float GAMEPAD_DEADZONE = 0.15f;
+float GAMEPAD_ANALOG_SCROLL_SPEED = 1.0f;
 
 #ifdef SIOYEK_MOBILE
 std::wstring STARTUP_COMMANDS = L"toggle_mouse_drag_mode;toggle_fullscreen";
@@ -967,6 +970,9 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_float(L"epub_font_size", &EPUB_FONT_SIZE, FloatExtras{0.0f, 100.0f});
     add_float(L"persistance_period", &PERSISTANCE_PERIOD, FloatExtras{-1.0f, 100000.0f});
     add_float(L"text_selection_minimum_distance", &TEXT_SELECTION_MINIMUM_DISTANCE, FloatExtras{-0.0f, 100.0f});
+    add_float(L"gamepad_deadzone", &GAMEPAD_DEADZONE, FloatExtras{0.0f, 1.0f});
+    add_float(L"gamepad_analog_scroll_speed", &GAMEPAD_ANALOG_SCROLL_SPEED, FloatExtras{0.0f, 10.0f});
+    add_bool(L"gamepad_enabled", &GAMEPAD_ENABLED);
     add_bool(L"default_dark_mode", &DEFAULT_DARK_MODE);
     add_bool(L"use_system_theme", &USE_SYSTEM_THEME);
     add_bool(L"use_custom_color_as_dark_system_theme", &USE_CUSTOM_COLOR_FOR_DARK_SYSTEM_THEME);

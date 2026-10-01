@@ -7632,27 +7632,35 @@ InputParseTreeNode parse_token(std::wstring token) {
     std::vector<std::wstring> subcommands;
     split_key_string(token, L"-", subcommands);
 
-    for (size_t i = 0; i < subcommands.size() - 1; i++) {
-        if (subcommands[i] == L"C") {
+    size_t key_start_idx = 0;
+    while (key_start_idx + 1 < subcommands.size()) {
+        const auto& sub = subcommands[key_start_idx];
+        if (sub == L"C") {
             res.control_modifier = true;
         }
-
-        if (subcommands[i] == L"D") {
+        else if (sub == L"D") {
             res.command_modifier = true;
         }
-
-        if (subcommands[i] == L"S") {
+        else if (sub == L"S") {
             res.shift_modifier = true;
         }
-
-        if (subcommands[i] == L"A") {
+        else if (sub == L"A") {
             res.alt_modifier = true;
         }
+        else {
+            break;
+        }
+        key_start_idx++;
     }
 
-    std::wstring command_string = subcommands[subcommands.size() - 1];
+    std::wstring command_string;
+    for (size_t i = key_start_idx; i < subcommands.size(); i++) {
+        if (i > key_start_idx) command_string += L"-";
+        command_string += subcommands[i];
+    }
+
     if (command_string.size() == 1) {
-        res.command = subcommands[subcommands.size() - 1][0];
+        res.command = command_string[0];
     }
     else {
 
@@ -7672,9 +7680,35 @@ InputParseTreeNode parse_token(std::wstring token) {
                 {L"pagedown", Qt::Key::Key_PageDown},
                 {L"home", Qt::Key::Key_Home},
                 {L"end", Qt::Key::Key_End},
-                {L"pagedown", Qt::Key::Key_End},
                 {L"tab", Qt::Key::Key_Tab},
                 {L"return", Qt::Key::Key_Return},
+                {L"gamepad-a", static_cast<Qt::Key>(Key_Gamepad_A)},
+                {L"gamepad-b", static_cast<Qt::Key>(Key_Gamepad_B)},
+                {L"gamepad-x", static_cast<Qt::Key>(Key_Gamepad_X)},
+                {L"gamepad-y", static_cast<Qt::Key>(Key_Gamepad_Y)},
+                {L"gamepad-lb", static_cast<Qt::Key>(Key_Gamepad_LB)},
+                {L"gamepad-rb", static_cast<Qt::Key>(Key_Gamepad_RB)},
+                {L"gamepad-lt", static_cast<Qt::Key>(Key_Gamepad_LT)},
+                {L"gamepad-rt", static_cast<Qt::Key>(Key_Gamepad_RT)},
+                {L"gamepad-select", static_cast<Qt::Key>(Key_Gamepad_Select)},
+                {L"gamepad-back", static_cast<Qt::Key>(Key_Gamepad_Select)},
+                {L"gamepad-start", static_cast<Qt::Key>(Key_Gamepad_Start)},
+                {L"gamepad-guide", static_cast<Qt::Key>(Key_Gamepad_Guide)},
+                {L"gamepad-home", static_cast<Qt::Key>(Key_Gamepad_Guide)},
+                {L"gamepad-l3", static_cast<Qt::Key>(Key_Gamepad_L3)},
+                {L"gamepad-r3", static_cast<Qt::Key>(Key_Gamepad_R3)},
+                {L"gamepad-dpad-up", static_cast<Qt::Key>(Key_Gamepad_DpadUp)},
+                {L"gamepad-dpad-down", static_cast<Qt::Key>(Key_Gamepad_DpadDown)},
+                {L"gamepad-dpad-left", static_cast<Qt::Key>(Key_Gamepad_DpadLeft)},
+                {L"gamepad-dpad-right", static_cast<Qt::Key>(Key_Gamepad_DpadRight)},
+                {L"gamepad-ls-up", static_cast<Qt::Key>(Key_Gamepad_LS_Up)},
+                {L"gamepad-ls-down", static_cast<Qt::Key>(Key_Gamepad_LS_Down)},
+                {L"gamepad-ls-left", static_cast<Qt::Key>(Key_Gamepad_LS_Left)},
+                {L"gamepad-ls-right", static_cast<Qt::Key>(Key_Gamepad_LS_Right)},
+                {L"gamepad-rs-up", static_cast<Qt::Key>(Key_Gamepad_RS_Up)},
+                {L"gamepad-rs-down", static_cast<Qt::Key>(Key_Gamepad_RS_Down)},
+                {L"gamepad-rs-left", static_cast<Qt::Key>(Key_Gamepad_RS_Left)},
+                {L"gamepad-rs-right", static_cast<Qt::Key>(Key_Gamepad_RS_Right)},
             };
             std::map<std::wstring, Qt::Key> keymap;
 
@@ -8215,6 +8249,31 @@ std::string InputHandler::get_key_name_from_key_code(int key_code) const {
         {Qt::Key::Key_End, "end"},
         {Qt::Key::Key_Tab, "tab"},
         {Qt::Key::Key_Backtab, "tab"},
+        {Key_Gamepad_A, "gamepad-a"},
+        {Key_Gamepad_B, "gamepad-b"},
+        {Key_Gamepad_X, "gamepad-x"},
+        {Key_Gamepad_Y, "gamepad-y"},
+        {Key_Gamepad_LB, "gamepad-lb"},
+        {Key_Gamepad_RB, "gamepad-rb"},
+        {Key_Gamepad_LT, "gamepad-lt"},
+        {Key_Gamepad_RT, "gamepad-rt"},
+        {Key_Gamepad_Select, "gamepad-select"},
+        {Key_Gamepad_Start, "gamepad-start"},
+        {Key_Gamepad_Guide, "gamepad-guide"},
+        {Key_Gamepad_L3, "gamepad-l3"},
+        {Key_Gamepad_R3, "gamepad-r3"},
+        {Key_Gamepad_DpadUp, "gamepad-dpad-up"},
+        {Key_Gamepad_DpadDown, "gamepad-dpad-down"},
+        {Key_Gamepad_DpadLeft, "gamepad-dpad-left"},
+        {Key_Gamepad_DpadRight, "gamepad-dpad-right"},
+        {Key_Gamepad_LS_Up, "gamepad-ls-up"},
+        {Key_Gamepad_LS_Down, "gamepad-ls-down"},
+        {Key_Gamepad_LS_Left, "gamepad-ls-left"},
+        {Key_Gamepad_LS_Right, "gamepad-ls-right"},
+        {Key_Gamepad_RS_Up, "gamepad-rs-up"},
+        {Key_Gamepad_RS_Down, "gamepad-rs-down"},
+        {Key_Gamepad_RS_Left, "gamepad-rs-left"},
+        {Key_Gamepad_RS_Right, "gamepad-rs-right"},
     };
 
     //if (((key_code <= 'z') && (key_code >= 'a')) || ((key_code <= 'Z') && (key_code >= 'A'))) {

@@ -71,6 +71,7 @@
 #include "checksum.h"
 #include "OpenWithApplication.h"
 #include "new_file_checker.h"
+#include "gamepad.h"
 
 #define FTS_FUZZY_MATCH_IMPLEMENTATION
 #include "fts_fuzzy_match.h"
@@ -890,6 +891,13 @@ int main(int argc, char* args[]) {
     //QString startup_commands_list = QString::fromStdWString(STARTUP_COMMANDS);
     //QStringList startup_commands = startup_commands_list.split(";");
     NewFileChecker new_file_checker(PAPERS_FOLDER_PATH, main_widget);
+    GamepadManager gamepad_manager([]() -> MainWidget* {
+        QWidget* active = QApplication::activeWindow();
+        for (auto* w : windows) {
+            if (w == active) return w;
+        }
+        return windows.empty() ? nullptr : windows[0];
+    });
 
 
 #ifndef SIOYEK_ANDROID

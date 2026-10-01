@@ -11,6 +11,7 @@
 #include "path.h"
 #include "coordinates.h"
 #include "utils.h"
+#include "gamepad.h"
 
 class QLocalSocket;
 class MainWidget;
