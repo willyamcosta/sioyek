@@ -33,6 +33,9 @@
 #include <qfile.h>
 #include <qdrag.h>
 #include <qmenu.h>
+#include <qpainter.h>
+#include <qclipboard.h>
+#include <qdir.h>
 #include <QThread>
 
 #ifndef SIOYEK_QT6
@@ -232,6 +235,8 @@ extern std::wstring ANILIST_TOKEN;
 extern std::wstring FLOPPY_URL;
 extern std::wstring FLOPPY_TOKEN;
 extern bool TRACKER_AUTO_NOTIFY;
+extern std::wstring SCREENSHOT_DIRECTORY;
+extern float PAGE_EXPORT_SCALE;
 
 extern bool SIMPLIFY_FREEHAND_DRAWINGS;
 extern bool SHOW_RIGHT_CLICK_CONTEXT_MENU;
@@ -527,6 +532,13 @@ void MainWidget::resizeEvent(QResizeEvent* resize_event) {
     }
 
     update_command_hints_position();
+
+    if (toast_label != nullptr && toast_label->isVisible()) {
+        int x = (main_window_width - toast_label->width()) / 2;
+        int y = main_window_height - status_bar_height - toast_label->height() - 25;
+        if (y < 10) y = 10;
+        toast_label->move(x, y);
+    }
 
     if ((main_document_view->get_document() != nullptr) && (main_document_view->get_zoom_level() == 0)) {
         main_document_view->fit_to_page_width();
@@ -1008,6 +1020,13 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     command_hints_label->setMargin(8);
     command_hints_label->setAttribute(Qt::WA_TransparentForMouseEvents);
     command_hints_label->hide();
+
+    toast_label = new QLabel(this);
+    toast_label->setFont(label_font);
+    toast_label->setStyleSheet("QLabel { background-color: rgba(20, 20, 20, 225); color: #ffffff; border: 1px solid rgba(255, 255, 255, 50); border-radius: 6px; padding: 8px 16px; }");
+    toast_label->setAlignment(Qt::AlignCenter);
+    toast_label->setAttribute(Qt::WA_TransparentForMouseEvents);
+    toast_label->hide();
 
     text_command_line_edit_container_layout->addWidget(text_command_line_edit_label);
     text_command_line_edit_container_layout->addWidget(text_command_line_edit);
@@ -10996,6 +11015,256 @@ void MainWidget::framebuffer_screenshot(std::wstring file_path) {
     //QPixmap pixmap(size());
     //render(&pixmap, QPoint(), QRegion(rect()));
     //pixmap.save(QString::fromStdWString(file_path));
+}
+
+QString MainWidget::get_screenshot_directory() {
+    if (!SCREENSHOT_DIRECTORY.empty()) {
+        return QString::fromStdWString(SCREENSHOT_DIRECTORY);
+    }
+    QString pic_dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    if (!pic_dir.isEmpty()) {
+        return pic_dir;
+    }
+    QString doc_dir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (!doc_dir.isEmpty()) {
+        return doc_dir;
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+}
+
+QString MainWidget::get_screenshot_filename(const QString& suffix) {
+    QString doc_title = "document";
+    if (doc()) {
+        std::wstring fname = Path(doc()->get_path()).filename().value_or(L"document");
+        doc_title = QString::fromStdWString(fname);
+        int dot_idx = doc_title.lastIndexOf('.');
+        if (dot_idx > 0) doc_title = doc_title.left(dot_idx);
+    }
+    QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
+    QString filename = doc_title;
+    if (!suffix.isEmpty()) {
+        filename += "_" + suffix;
+    }
+    filename += "_" + timestamp + ".png";
+    return filename;
+}
+
+void MainWidget::show_toast_message(const QString& message, int duration_ms) {
+    if (!toast_label) return;
+    toast_label->setText(message);
+    toast_label->adjustSize();
+    int x = (width() - toast_label->width()) / 2;
+    int y = height() - get_status_bar_height() - toast_label->height() - 25;
+    if (y < 10) y = 10;
+    toast_label->move(x, y);
+    toast_label->show();
+    toast_label->raise();
+
+    QTimer::singleShot(duration_ms, this, [this]() {
+        if (toast_label) {
+            toast_label->hide();
+        }
+    });
+}
+
+void MainWidget::screenshot_view() {
+    if (!main_document_view_has_document()) return;
+
+    QPixmap pixmap;
+    QString type_suffix = "view";
+
+    std::optional<AbsoluteRect> opt_rect = get_selected_rect_absolute();
+    if (!opt_rect.has_value() && rect_select_begin.has_value() && rect_select_end.has_value()) {
+        opt_rect = AbsoluteRect(rect_select_begin.value(), rect_select_end.value());
+    }
+
+    if (opt_rect.has_value() && std::abs(opt_rect->width()) > 0.001f && std::abs(opt_rect->height()) > 0.001f) {
+        WindowRect window_rect = opt_rect->to_window(main_document_view);
+        int rx = std::min(window_rect.x0, window_rect.x1);
+        int ry = std::min(window_rect.y0, window_rect.y1);
+        int rw = std::abs(window_rect.x1 - window_rect.x0);
+        int rh = std::abs(window_rect.y1 - window_rect.y0);
+
+        if (rw > 0 && rh > 0) {
+            QImage fb = opengl_widget->grabFramebuffer();
+            float ratio = opengl_widget->devicePixelRatio();
+            QRect crop_rect(static_cast<int>(rx * ratio), static_cast<int>(ry * ratio),
+                            static_cast<int>(rw * ratio), static_cast<int>(rh * ratio));
+            crop_rect = crop_rect.intersected(fb.rect());
+            if (!crop_rect.isEmpty()) {
+                pixmap = QPixmap::fromImage(fb.copy(crop_rect));
+                type_suffix = "panel";
+            }
+            clear_selected_rect();
+            rect_select_mode = false;
+            rect_select_begin = {};
+            rect_select_end = {};
+            invalidate_render();
+        }
+    }
+
+    if (pixmap.isNull()) {
+        QImage fb = opengl_widget->grabFramebuffer();
+        pixmap = QPixmap::fromImage(fb);
+    }
+
+    if (pixmap.isNull()) {
+        show_toast_message("Failed to capture view screenshot");
+        return;
+    }
+
+    QApplication::clipboard()->setPixmap(pixmap);
+
+    QString dir_path = get_screenshot_directory();
+    QDir().mkpath(dir_path);
+    QString filename = get_screenshot_filename(type_suffix);
+    QString full_path = QDir(dir_path).filePath(filename);
+
+    if (pixmap.save(full_path, "PNG")) {
+        show_toast_message(QString("Captured %1 -> %2 (copied to clipboard)").arg(type_suffix).arg(filename));
+    }
+    else {
+        show_toast_message("Screenshot copied to clipboard (file save failed)");
+    }
+}
+
+void MainWidget::screenshot_page() {
+    if (!main_document_view_has_document() || !doc()) return;
+
+    int current_page = get_current_page_number();
+    float scale = PAGE_EXPORT_SCALE > 0.1f ? PAGE_EXPORT_SCALE : 2.0f;
+
+    QImage final_image;
+    QString page_suffix;
+
+    std::vector<int> visible_pages;
+    main_document_view->get_visible_pages(opengl_widget->height(), visible_pages);
+
+    if (main_document_view->is_two_page_mode() && visible_pages.size() >= 2) {
+        int p1 = visible_pages[0];
+        int p2 = visible_pages[1];
+        QImage img1 = doc()->render_page_to_qimage(p1, scale);
+        QImage img2 = doc()->render_page_to_qimage(p2, scale);
+
+        if (!img1.isNull() && !img2.isNull()) {
+            int total_w = img1.width() + img2.width();
+            int max_h = std::max(img1.height(), img2.height());
+            final_image = QImage(total_w, max_h, QImage::Format_RGB888);
+            final_image.fill(Qt::white);
+            QPainter painter(&final_image);
+            painter.drawImage(0, 0, img1);
+            painter.drawImage(img1.width(), 0, img2);
+            page_suffix = QString("p%1-p%2").arg(p1 + 1).arg(p2 + 1);
+        }
+        else if (!img1.isNull()) {
+            final_image = img1;
+            page_suffix = QString("p%1").arg(p1 + 1);
+        }
+    }
+    else {
+        final_image = doc()->render_page_to_qimage(current_page, scale);
+        page_suffix = QString("p%1").arg(current_page + 1);
+    }
+
+    if (final_image.isNull()) {
+        show_toast_message("Failed to render page image");
+        return;
+    }
+
+    QPixmap pixmap = QPixmap::fromImage(final_image);
+    QApplication::clipboard()->setPixmap(pixmap);
+
+    QString dir_path = get_screenshot_directory();
+    QDir().mkpath(dir_path);
+    QString filename = get_screenshot_filename(page_suffix);
+    QString full_path = QDir(dir_path).filePath(filename);
+
+    if (final_image.save(full_path, "PNG")) {
+        show_toast_message(QString("Page saved: %1 (copied to clipboard)").arg(filename));
+    }
+    else {
+        show_toast_message("Page copied to clipboard (file save failed)");
+    }
+}
+
+void MainWidget::toggle_favorite() {
+    if (!main_document_view_has_document() || !doc()) return;
+
+    float current_y = main_document_view->get_offset_y();
+    int current_page = get_current_page_number();
+
+    const auto& bookmarks = doc()->get_bookmarks();
+    const BookMark* existing = nullptr;
+    for (const auto& bm : bookmarks) {
+        if (bm.description.rfind(L"★", 0) == 0) {
+            if (std::abs(bm.get_y_offset() - current_y) < 150.0f) {
+                existing = &bm;
+                break;
+            }
+        }
+    }
+
+    if (existing) {
+        float y_off = existing->get_y_offset();
+        main_document_view->delete_closest_bookmark_to_offset(y_off);
+        show_toast_message(QString("Removed favorite (p. %1)").arg(current_page + 1));
+        validate_ui();
+        return;
+    }
+
+    QString desc = QString("★ Page %1 [%2]").arg(current_page + 1).arg(QTime::currentTime().toString("HH:mm"));
+    main_document_view->add_bookmark(desc.toStdWString());
+    show_toast_message(QString("★ Saved to Favorites (p. %1)").arg(current_page + 1));
+    validate_ui();
+}
+
+void MainWidget::handle_open_favorites() {
+    std::vector<std::pair<std::string, BookMark>> all_global_bookmarks;
+    db_manager->global_select_bookmark(all_global_bookmarks);
+
+    std::vector<std::wstring> descs;
+    std::vector<std::wstring> file_names;
+    std::vector<BookState> states;
+
+    for (const auto& pair : all_global_bookmarks) {
+        const BookMark& bm = pair.second;
+        if (bm.description.rfind(L"★", 0) == 0) {
+            std::optional<std::wstring> path = checksummer->get_path(pair.first);
+            if (path) {
+                std::wstring fname = Path(path.value()).filename().value_or(L"");
+                descs.push_back(ITEM_LIST_PREFIX + L" " + bm.description);
+                file_names.push_back(truncate_string(fname, 50));
+                states.push_back({ path.value(), bm.get_y_offset(), bm.uuid });
+            }
+        }
+    }
+
+    if (states.empty()) {
+        show_toast_message("No favorites saved yet");
+        return;
+    }
+
+    set_filtered_select_menu<BookState>(this, FUZZY_SEARCHING, MULTILINE_MENUS, { descs, file_names }, states, -1,
+        [&](BookState* state) {
+            if (doc() && doc()->get_path() == state->document_path) {
+                main_document_view->set_offset_y(state->offset_y);
+                invalidate_render();
+            }
+            else {
+                open_document(state->document_path, std::nullopt, state->offset_y);
+            }
+        },
+        [&](BookState* state) {
+            db_manager->delete_bookmark(state->uuid);
+            if (doc()) {
+                int idx = doc()->get_bookmark_index_with_uuid(state->uuid);
+                if (idx != -1) {
+                    doc()->delete_bookmark(idx);
+                }
+            }
+        }
+    );
+    show_current_widget();
 }
 
 bool MainWidget::is_render_ready(){

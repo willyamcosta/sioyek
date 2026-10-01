@@ -1853,6 +1853,30 @@ fz_pixmap* Document::get_small_pixmap(int page) {
     return res;
 }
 
+QImage Document::render_page_to_qimage(int page, float scale) {
+    if (!doc || page < 0 || page >= num_pages()) return QImage();
+
+    fz_matrix ctm = fz_scale(scale, scale);
+    fz_pixmap* res = nullptr;
+    fz_try(context) {
+        res = fz_new_pixmap_from_page_number(context, doc, page, ctm, fz_device_rgb(context), 0);
+    }
+    fz_catch(context) {
+        return QImage();
+    }
+    if (!res) return QImage();
+
+    QImage img;
+    if (res->n == 4) {
+        img = QImage(res->samples, res->w, res->h, res->stride, QImage::Format_RGBA8888).copy();
+    }
+    else {
+        img = QImage(res->samples, res->w, res->h, res->stride, QImage::Format_RGB888).copy();
+    }
+    fz_drop_pixmap(context, res);
+    return img;
+}
+
 void Document::get_text_selection(AbsoluteDocumentPos selection_begin,
     AbsoluteDocumentPos selection_end,
     bool is_word_selection, // when in word select mode, we select entire words even if the range only partially includes the word

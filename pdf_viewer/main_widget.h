@@ -349,6 +349,7 @@ public:
     QLabel* text_command_line_edit_label = nullptr;
     QLineEdit* text_command_line_edit = nullptr;
     QLabel* command_hints_label = nullptr;
+    QLabel* toast_label = nullptr;
     QLabel* status_label_left = nullptr;
     QLabel* status_label_right = nullptr;
     QWidget* status_label = nullptr;
@@ -671,6 +672,13 @@ public:
     void handle_goto_bookmark();
     void handle_show_marks();
     void handle_goto_bookmark_global();
+    void toggle_favorite();
+    void handle_open_favorites();
+    QString get_screenshot_directory();
+    QString get_screenshot_filename(const QString& suffix = "");
+    void show_toast_message(const QString& message, int duration_ms = 2500);
+    void screenshot_view();
+    void screenshot_page();
     std::wstring handle_add_highlight(char symbol);
     void handle_goto_highlight();
     void handle_goto_highlight_global();

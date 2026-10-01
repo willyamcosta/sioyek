@@ -2337,6 +2337,38 @@ public:
     }
 };
 
+class ScreenshotViewCommand : public Command {
+public:
+    static inline const std::string cname = "screenshot_view";
+    static inline const std::string hname = "Save screenshot of current view or selection to pictures directory";
+    ScreenshotViewCommand(MainWidget* w) : Command(cname, w) {}
+    void perform() override { widget->screenshot_view(); }
+};
+
+class ScreenshotPageCommand : public Command {
+public:
+    static inline const std::string cname = "screenshot_page";
+    static inline const std::string hname = "Save clean full-res image of current page or spread to pictures directory";
+    ScreenshotPageCommand(MainWidget* w) : Command(cname, w) {}
+    void perform() override { widget->screenshot_page(); }
+};
+
+class ToggleFavoriteCommand : public Command {
+public:
+    static inline const std::string cname = "toggle_favorite";
+    static inline const std::string hname = "Toggle favorite moment bookmark for current page";
+    ToggleFavoriteCommand(MainWidget* w) : Command(cname, w) {}
+    void perform() override { widget->toggle_favorite(); }
+};
+
+class OpenFavoritesCommand : public Command {
+public:
+    static inline const std::string cname = "open_favorites";
+    static inline const std::string hname = "Open saved favorite moments list";
+    OpenFavoritesCommand(MainWidget* w) : Command(cname, w) {}
+    void perform() override { widget->handle_open_favorites(); }
+};
+
 class AddBookmarkFreetextCommand : public Command {
 
 public:
@@ -7234,6 +7266,10 @@ CommandManager::CommandManager(ConfigManager* config_manager) {
     register_command<OpenDocumentInDirectoryCommand>();
     register_command<ScreenshotCommand>();
     register_command<FramebufferScreenshotCommand>();
+    register_command<ScreenshotViewCommand>();
+    register_command<ScreenshotPageCommand>();
+    register_command<ToggleFavoriteCommand>();
+    register_command<OpenFavoritesCommand>();
     register_command<WaitCommand>();
     register_command<WaitForRendersToFinishCommand>();
     register_command<WaitForSearchToFinishCommand>();

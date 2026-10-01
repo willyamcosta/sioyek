@@ -186,6 +186,8 @@ bool TRACKER_AUTO_NOTIFY = true;
 bool GAMEPAD_ENABLED = true;
 float GAMEPAD_DEADZONE = 0.15f;
 float GAMEPAD_ANALOG_SCROLL_SPEED = 1.0f;
+std::wstring SCREENSHOT_DIRECTORY = L"";
+float PAGE_EXPORT_SCALE = 2.0f;
 
 #ifdef SIOYEK_MOBILE
 std::wstring STARTUP_COMMANDS = L"toggle_mouse_drag_mode;toggle_fullscreen";
@@ -973,6 +975,8 @@ ConfigManager::ConfigManager(const Path& default_path, const Path& auto_path, co
     add_float(L"gamepad_deadzone", &GAMEPAD_DEADZONE, FloatExtras{0.0f, 1.0f});
     add_float(L"gamepad_analog_scroll_speed", &GAMEPAD_ANALOG_SCROLL_SPEED, FloatExtras{0.0f, 10.0f});
     add_bool(L"gamepad_enabled", &GAMEPAD_ENABLED);
+    add_string(L"screenshot_directory", &SCREENSHOT_DIRECTORY);
+    add_float(L"page_export_scale", &PAGE_EXPORT_SCALE, FloatExtras{0.5f, 10.0f});
     add_bool(L"default_dark_mode", &DEFAULT_DARK_MODE);
     add_bool(L"use_system_theme", &USE_SYSTEM_THEME);
     add_bool(L"use_custom_color_as_dark_system_theme", &USE_CUSTOM_COLOR_FOR_DARK_SYSTEM_THEME);

@@ -13,6 +13,7 @@
 //#include <Windows.h>
 #include <qstandarditemmodel.h>
 #include <qdatetime.h>
+#include <qimage.h>
 
 #include <mupdf/fitz.h>
 #include <qobject.h>
@@ -265,6 +266,7 @@ public:
     unsigned int get_milies_since_last_edit_time();
     float get_page_height(int page_index);
     fz_pixmap* get_small_pixmap(int page);
+    QImage render_page_to_qimage(int page_index, float scale = 2.0f);
     float get_page_width(int page_index);
     float get_page_width_median();
     std::wstring get_page_label(int page_index);
