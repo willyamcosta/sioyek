@@ -123,6 +123,7 @@ protected:
 
 
 
+    MainWidget* main_widget = nullptr;
     QLineEdit* line_edit = nullptr;
     //QSortFilterProxyModel* proxy_model = nullptr;
     MySortFilterProxyModel* proxy_model = nullptr;
@@ -214,8 +215,13 @@ public:
     }
 
     void on_select(const QModelIndex& index) {
-        this->hide();
-        this->parentWidget()->setFocus();
+        if (this->main_widget) {
+            this->main_widget->pop_current_widget();
+        }
+        else {
+            this->hide();
+            this->parentWidget()->setFocus();
+        }
         auto source_index = this->proxy_model->mapToSource(index);
         std::vector<int> indices;
         while (source_index != QModelIndex()) {
@@ -397,8 +403,13 @@ public:
     }
 
     void on_select(const QModelIndex& index) {
-        this->hide();
-        this->parentWidget()->setFocus();
+        if (this->main_widget) {
+            this->main_widget->pop_current_widget();
+        }
+        else {
+            this->hide();
+            this->parentWidget()->setFocus();
+        }
         auto source_index = this->proxy_model->mapToSource(index);
         on_done(&values[source_index.row()]);
     }
@@ -576,8 +587,13 @@ public:
     }
 
     void on_select(const QModelIndex& index) {
-        this->hide();
-        this->parentWidget()->setFocus();
+        if (this->main_widget) {
+            this->main_widget->pop_current_widget();
+        }
+        else {
+            this->hide();
+            this->parentWidget()->setFocus();
+        }
         auto source_index = this->proxy_model->mapToSource(index);
         on_done(&values[source_index.row()]);
     }

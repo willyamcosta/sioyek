@@ -186,6 +186,9 @@ extern float CUSTOM_TEXT_COLOR[3];
 extern float HYPERDRIVE_SPEED_FACTOR;
 extern float SMOOTH_SCROLL_SPEED;
 extern float SMOOTH_SCROLL_DRAG;
+extern bool SMOOTH_SCROLL_MODE;
+extern float SMOOTH_SCROLL_SPRING_CONSTANT;
+extern float SMOOTH_SCROLL_DAMPING_RATIO;
 extern bool SUPER_FAST_SEARCH;
 extern bool INCREMENTAL_SEARCH;
 extern bool SHOW_CLOSEST_BOOKMARK_IN_STATUSBAR;
@@ -947,6 +950,8 @@ MainWidget::MainWidget(fz_context* mupdf_context,
     //quickWindow()->setGraphicsApi(QSGRendererInterface::OpenGL);
     window_id = next_window_id;
     next_window_id++;
+    smooth_scroll_mode = SMOOTH_SCROLL_MODE;
+    last_smooth_scroll_time = std::chrono::steady_clock::now();
 
 
     setMouseTracking(true);
@@ -1773,36 +1778,75 @@ void MainWidget::validate_render() {
 
     if (smooth_scroll_mode) {
         if (main_document_view_has_document()) {
-            float secs = static_cast<float>(-QTime::currentTime().msecsTo(last_speed_update_time)) / 1000.0f;
+            auto now = std::chrono::steady_clock::now();
+            float secs = std::chrono::duration_cast<std::chrono::duration<float>>(now - last_smooth_scroll_time).count();
+            last_smooth_scroll_time = now;
+            secs = std::clamp(secs, 0.0001f, 0.05f);
 
-            if (secs > 0.1f) {
-                secs = 0.0f;
+            // Mass-spring-damper physics (Smoothfox MSD model):
+            // k: spring constant (higher = snappier, lower = floatier glide)
+            // zeta: damping ratio (1.0 = critical damping / zero bounce)
+            const float k = std::max(SMOOTH_SCROLL_SPRING_CONSTANT, 10.0f);
+            const float omega0 = std::sqrt(k);
+            const float zeta = std::clamp(SMOOTH_SCROLL_DAMPING_RATIO, 0.1f, 5.0f);
+
+            float y_rem = smooth_scroll_target_offset_y;
+            float v = smooth_scroll_velocity_y;
+
+            if (std::abs(y_rem) > 0.0f || std::abs(v) > 0.0f) {
+                float y_rem_next = 0.0f;
+                float v_next = 0.0f;
+
+                if (std::abs(zeta - 1.0f) < 0.01f) {
+                    // Critical damping
+                    float e = std::exp(-omega0 * secs);
+                    y_rem_next = (y_rem + (v + omega0 * y_rem) * secs) * e;
+                    v_next = (v - omega0 * (v + omega0 * y_rem) * secs) * e;
+                }
+                else if (zeta < 1.0f) {
+                    // Underdamped
+                    float gamma = zeta * omega0;
+                    float omega_d = omega0 * std::sqrt(1.0f - zeta * zeta);
+                    float e = std::exp(-gamma * secs);
+                    float cos_val = std::cos(omega_d * secs);
+                    float sin_val = std::sin(omega_d * secs);
+                    y_rem_next = e * (y_rem * cos_val + ((v + gamma * y_rem) / omega_d) * sin_val);
+                    v_next = e * (v * cos_val - ((gamma * v + omega0 * omega0 * y_rem) / omega_d) * sin_val);
+                }
+                else {
+                    // Overdamped
+                    float gamma = zeta * omega0;
+                    float mu = omega0 * std::sqrt(zeta * zeta - 1.0f);
+                    float r1 = -gamma + mu;
+                    float r2 = -gamma - mu;
+                    float e1 = std::exp(r1 * secs);
+                    float e2 = std::exp(r2 * secs);
+                    float c1 = (v - r2 * y_rem) / (2.0f * mu);
+                    float c2 = y_rem - c1;
+                    y_rem_next = c1 * e1 + c2 * e2;
+                    v_next = c1 * r1 * e1 + c2 * r2 * e2;
+                }
+
+                float dy = y_rem - y_rem_next;
+                smooth_scroll_target_offset_y = y_rem_next;
+                smooth_scroll_velocity_y = v_next;
+
+                bool truncated = move_document(0, dy);
+                maybe_open_adjacent_document_after_boundary_scroll(dy, truncated);
+                update_scrollbar();
+
+                if (truncated || (std::abs(smooth_scroll_target_offset_y) < 0.2f && std::abs(smooth_scroll_velocity_y) < 1.0f)) {
+                    if (!truncated && std::abs(smooth_scroll_target_offset_y) > 0.0f) {
+                        move_document(0, smooth_scroll_target_offset_y);
+                    }
+                    smooth_scroll_target_offset_y = 0.0f;
+                    smooth_scroll_velocity_y = 0.0f;
+                }
             }
 
-            if (!opengl_widget->get_overview_page()) {
-                float current_offset = main_document_view->get_offset_y();
-                main_document_view->set_offset_y(current_offset + smooth_scroll_speed * secs);
+            if (smooth_scroll_target_offset_y == 0.0f && smooth_scroll_velocity_y == 0.0f && !is_moving()) {
+                validation_interval_timer->setInterval(INTERVAL_TIME);
             }
-            else {
-                OverviewState state = opengl_widget->get_overview_page().value();
-                //opengl_widget->get_overview_offsets(&overview_offset_x, &overview_offset_y);
-                //opengl_widget->set_overview_offsets(overview_offset_x, overview_offset_y + smooth_scroll_speed * secs);
-                state.absolute_offset_y += smooth_scroll_speed * secs;
-                set_overview_page(state);
-            }
-            float accel = SMOOTH_SCROLL_DRAG;
-            if (smooth_scroll_speed > 0) {
-                smooth_scroll_speed -= secs * accel;
-                if (smooth_scroll_speed < 0) smooth_scroll_speed = 0;
-
-            }
-            else {
-                smooth_scroll_speed += secs * accel;
-                if (smooth_scroll_speed > 0) smooth_scroll_speed = 0;
-            }
-
-
-            last_speed_update_time = QTime::currentTime();
         }
     }
     if (is_moving()) {
@@ -1909,7 +1953,7 @@ void MainWidget::validate_render() {
     }
 
     is_render_invalidated = false;
-    if (smooth_scroll_mode && (smooth_scroll_speed != 0)) {
+    if (smooth_scroll_mode && (smooth_scroll_target_offset_y != 0.0f || smooth_scroll_velocity_y != 0.0f)) {
         is_render_invalidated = true;
     }
     if (is_moving()) {
@@ -2929,6 +2973,9 @@ QString MainWidget::find_series_resume_file(const TrackedWork& work) {
 }
 
 void MainWidget::resume_reading_work(const TrackedWork& work) {
+    if (!current_widget_stack.empty()) {
+        pop_current_widget();
+    }
     QString resume_file = find_series_resume_file(work);
     if (resume_file.isEmpty() || !QFileInfo::exists(resume_file)) {
         show_error_message(L"No readable documents found for: " + work.title.toStdWString());
@@ -5131,6 +5178,10 @@ void MainWidget::pop_current_widget(bool canceled) {
     }
     if (current_widget_stack.size() > 0) {
         current_widget_stack.back()->show();
+        current_widget_stack.back()->setFocus();
+    }
+    else {
+        setFocus();
     }
 }
 
@@ -5341,7 +5392,10 @@ void MainWidget::move_vertical(float amount) {
         validate_render();
     }
     else {
-        smooth_scroll_speed += amount * SMOOTH_SCROLL_SPEED;
+        float delta = amount * SMOOTH_SCROLL_SPEED;
+        smooth_scroll_target_offset_y += delta;
+        validation_interval_timer->setInterval(0);
+        last_smooth_scroll_time = std::chrono::steady_clock::now();
         validate_render();
     }
 }
@@ -7729,13 +7783,11 @@ void MainWidget::handle_goto_window() {
 
 void MainWidget::handle_toggle_smooth_scroll_mode() {
     smooth_scroll_mode = !smooth_scroll_mode;
+    smooth_scroll_target_offset_y = 0.0f;
+    smooth_scroll_velocity_y = 0.0f;
+    last_smooth_scroll_time = std::chrono::steady_clock::now();
 
-    if (smooth_scroll_mode) {
-        validation_interval_timer->setInterval(16);
-    }
-    else {
-        validation_interval_timer->setInterval(INTERVAL_TIME);
-    }
+    validation_interval_timer->setInterval(INTERVAL_TIME);
 }
 
 
@@ -12526,10 +12578,135 @@ std::optional<std::wstring> MainWidget::get_search_suggestion_with_index(int ind
 }
 
 bool MainWidget::is_menu_focused() {
+    if (has_active_menu_widget()) {
+        return true;
+    }
     if (dynamic_cast<MyLineEdit*>(focusWidget())) {
         return true;
     }
     return false;
+}
+
+void MainWidget::menu_nav_down() {
+    if (!current_widget_stack.empty() && current_widget_stack.back()->isVisible()) {
+        QWidget* top = current_widget_stack.back();
+        if (auto* selector = dynamic_cast<BaseSelectorWidget*>(top)) {
+            selector->simulate_move_down();
+            return;
+        }
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_Down, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
+}
+
+void MainWidget::menu_nav_up() {
+    if (!current_widget_stack.empty() && current_widget_stack.back()->isVisible()) {
+        QWidget* top = current_widget_stack.back();
+        if (auto* selector = dynamic_cast<BaseSelectorWidget*>(top)) {
+            selector->simulate_move_up();
+            return;
+        }
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_Up, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
+}
+
+void MainWidget::menu_nav_left() {
+    if (!current_widget_stack.empty() && current_widget_stack.back()->isVisible()) {
+        QWidget* top = current_widget_stack.back();
+        if (auto* selector = dynamic_cast<BaseSelectorWidget*>(top)) {
+            selector->simulate_move_left();
+            return;
+        }
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_Left, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
+}
+
+void MainWidget::menu_nav_right() {
+    if (!current_widget_stack.empty() && current_widget_stack.back()->isVisible()) {
+        QWidget* top = current_widget_stack.back();
+        if (auto* selector = dynamic_cast<BaseSelectorWidget*>(top)) {
+            selector->simulate_move_right();
+            return;
+        }
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
+}
+
+void MainWidget::menu_nav_page_down() {
+    if (!current_widget_stack.empty() && current_widget_stack.back()->isVisible()) {
+        QWidget* top = current_widget_stack.back();
+        if (auto* selector = dynamic_cast<BaseSelectorWidget*>(top)) {
+            selector->simulate_page_down();
+            return;
+        }
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_PageDown, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
+}
+
+void MainWidget::menu_nav_page_up() {
+    if (!current_widget_stack.empty() && current_widget_stack.back()->isVisible()) {
+        QWidget* top = current_widget_stack.back();
+        if (auto* selector = dynamic_cast<BaseSelectorWidget*>(top)) {
+            selector->simulate_page_up();
+            return;
+        }
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_PageUp, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
+}
+
+void MainWidget::menu_nav_select() {
+    if (!current_widget_stack.empty() && current_widget_stack.back()->isVisible()) {
+        QWidget* top = current_widget_stack.back();
+        if (auto* selector = dynamic_cast<BaseSelectorWidget*>(top)) {
+            selector->simulate_select();
+            return;
+        }
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
+}
+
+void MainWidget::menu_nav_close() {
+    if (text_command_line_edit_container && text_command_line_edit_container->isVisible()) {
+        text_command_line_edit_container->hide();
+        setFocus();
+        return;
+    }
+    if (!current_widget_stack.empty()) {
+        pop_current_widget();
+        return;
+    }
+    QWidget* fw = QApplication::focusWidget();
+    if (fw && fw != this) {
+        QKeyEvent ev(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+        QCoreApplication::sendEvent(fw, &ev);
+    }
 }
 
 

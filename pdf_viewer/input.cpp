@@ -472,7 +472,7 @@ public:
         }
     }
 
-    bool is_menu_command() {
+    bool is_menu_command() override {
         if (is_modal) {
             bool res = false;
             for (std::string mode : modes) {
@@ -481,6 +481,11 @@ public:
                 }
             }
             return res;
+        }
+        for (auto& cmd : commands) {
+            if (cmd && cmd->is_menu_command()) {
+                return true;
+            }
         }
         return false;
     }
@@ -7182,8 +7187,167 @@ public:
 
 };
 
+class MenuDownCommand : public Command {
+public:
+    static inline const std::string cname = "menu_down";
+    static inline const std::string hname = "Move down in menu / selector";
+    MenuDownCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_down();
+    }
+};
+
+class MenuUpCommand : public Command {
+public:
+    static inline const std::string cname = "menu_up";
+    static inline const std::string hname = "Move up in menu / selector";
+    MenuUpCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_up();
+    }
+};
+
+class MenuLeftCommand : public Command {
+public:
+    static inline const std::string cname = "menu_left";
+    static inline const std::string hname = "Move left in menu / selector";
+    MenuLeftCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_left();
+    }
+};
+
+class MenuRightCommand : public Command {
+public:
+    static inline const std::string cname = "menu_right";
+    static inline const std::string hname = "Move right in menu / selector";
+    MenuRightCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_right();
+    }
+};
+
+class MenuPageDownCommand : public Command {
+public:
+    static inline const std::string cname = "menu_page_down";
+    static inline const std::string hname = "Page down in menu / selector";
+    MenuPageDownCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_page_down();
+    }
+};
+
+class MenuPageUpCommand : public Command {
+public:
+    static inline const std::string cname = "menu_page_up";
+    static inline const std::string hname = "Page up in menu / selector";
+    MenuPageUpCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_page_up();
+    }
+};
+
+class MenuSelectCommand : public Command {
+public:
+    static inline const std::string cname = "menu_select";
+    static inline const std::string hname = "Select item in menu / selector";
+    MenuSelectCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_select();
+    }
+};
+
+class MenuCloseCommand : public Command {
+public:
+    static inline const std::string cname = "menu_close";
+    static inline const std::string hname = "Close menu / selector";
+    MenuCloseCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    bool is_menu_command() override { return true; }
+    void perform() override {
+        widget->menu_nav_close();
+    }
+};
+
+class SmoothScrollCommand : public Command {
+public:
+    static inline const std::string cname = "smooth_scroll";
+    static inline const std::string hname = "Analog smooth scrolling (bind to <gamepad-ls> or <gamepad-rs>)";
+    SmoothScrollCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    void perform() override {}
+};
+
+class SmoothScrollDownCommand : public Command {
+public:
+    static inline const std::string cname = "smooth_scroll_down";
+    static inline const std::string hname = "Analog smooth scroll down";
+    SmoothScrollDownCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    void perform() override {}
+};
+
+class SmoothScrollUpCommand : public Command {
+public:
+    static inline const std::string cname = "smooth_scroll_up";
+    static inline const std::string hname = "Analog smooth scroll up";
+    SmoothScrollUpCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    void perform() override {}
+};
+
+class SmoothScrollLeftCommand : public Command {
+public:
+    static inline const std::string cname = "smooth_scroll_left";
+    static inline const std::string hname = "Analog smooth scroll left";
+    SmoothScrollLeftCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    void perform() override {}
+};
+
+class SmoothScrollRightCommand : public Command {
+public:
+    static inline const std::string cname = "smooth_scroll_right";
+    static inline const std::string hname = "Analog smooth scroll right";
+    SmoothScrollRightCommand(MainWidget* w) : Command(cname, w) {};
+    bool requires_document() override { return false; }
+    void perform() override {}
+};
+
 
 CommandManager::CommandManager(ConfigManager* config_manager) {
+
+    register_command<MenuDownCommand>();
+    register_command<MenuUpCommand>();
+    register_command<MenuLeftCommand>();
+    register_command<MenuRightCommand>();
+    register_command<MenuPageDownCommand>();
+    register_command<MenuPageUpCommand>();
+    register_command<MenuSelectCommand>();
+    register_command<MenuCloseCommand>();
+    register_command<MenuCloseCommand>("menu_cancel");
+    register_command<MenuCloseCommand>("menu_back");
+    register_command<SmoothScrollCommand>();
+    register_command<SmoothScrollCommand>("smooth_scroll_ls");
+    register_command<SmoothScrollCommand>("smooth_scroll_rs");
+    register_command<SmoothScrollDownCommand>();
+    register_command<SmoothScrollUpCommand>();
+    register_command<SmoothScrollLeftCommand>();
+    register_command<SmoothScrollRightCommand>();
 
     register_command<GotoBeginningCommand>();
     register_command<GotoEndCommand>();
@@ -7745,6 +7909,8 @@ InputParseTreeNode parse_token(std::wstring token) {
                 {L"gamepad-rs-down", static_cast<Qt::Key>(Key_Gamepad_RS_Down)},
                 {L"gamepad-rs-left", static_cast<Qt::Key>(Key_Gamepad_RS_Left)},
                 {L"gamepad-rs-right", static_cast<Qt::Key>(Key_Gamepad_RS_Right)},
+                {L"gamepad-ls", static_cast<Qt::Key>(Key_Gamepad_LS)},
+                {L"gamepad-rs", static_cast<Qt::Key>(Key_Gamepad_RS)},
             };
             std::map<std::wstring, Qt::Key> keymap;
 
@@ -8067,12 +8233,41 @@ std::unique_ptr<Command> InputHandler::get_menu_command(MainWidget* w, QKeyEvent
     for (auto child : root->children) {
         if (child->is_final && child->matches(key, shift_pressed, control_pressed, command_pressed, alt_pressed)){
             if (child->generator.has_value()) {
-                return child->generator.value()(w);
+                auto cmd = child->generator.value()(w);
+                if (cmd && cmd->is_menu_command()) {
+                    return cmd;
+                }
             }
         }
     }
 
     return {};
+}
+
+bool InputHandler::is_key_bound(int key_code, const std::string& command_name) const {
+    if (!root) return false;
+    for (auto child : root->children) {
+        if (child->command == key_code && child->is_final) {
+            if (command_name.empty()) return true;
+            for (const auto& n : child->name_) {
+                std::string base = n;
+                if (!base.empty() && base.front() == '[') {
+                    auto close_bracket = base.find(']');
+                    if (close_bracket != std::string::npos) {
+                        base = base.substr(close_bracket + 1);
+                        while (!base.empty() && (base.front() == ' ' || base.front() == '\t')) {
+                            base.erase(base.begin());
+                        }
+                    }
+                }
+                while (!base.empty() && (base.back() == ' ' || base.back() == '\t' || base.back() == '\r')) {
+                    base.pop_back();
+                }
+                if (base == command_name) return true;
+            }
+        }
+    }
+    return false;
 }
 
 int InputHandler::get_event_key(QKeyEvent* key_event, bool* shift_pressed, bool* control_pressed, bool* command_pressed, bool* alt_pressed) {

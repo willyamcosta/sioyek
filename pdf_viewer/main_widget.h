@@ -278,10 +278,12 @@ public:
     // line thickness of freehand drawings
     float freehand_thickness = 1.0f;
 
-    // in smooth scroll mode we scroll the document smoothly instead of jumping to the target
-    // `smooth_scroll_speed` is used to keep track of our speed in this mode
+    // in smooth scroll mode we scroll the document smoothly using Mass-Spring-Damper (MSD) physics
     bool smooth_scroll_mode = false;
     float smooth_scroll_speed = 0.0f;
+    float smooth_scroll_target_offset_y = 0.0f;
+    float smooth_scroll_velocity_y = 0.0f;
+    std::chrono::steady_clock::time_point last_smooth_scroll_time;
 
     // the timer which periodically checks if the UI/rendering needs updating. Normally the timer value is
     // set to be INTERVAL_TIME (which is 200ms at the time of writing this comment), however, it is set to a much
@@ -557,8 +559,25 @@ public:
     void synchronize_continuous_scroll_subdocument();
     void prune_continuous_scroll_cache();
     bool has_active_menu_widget() const {
-        return !current_widget_stack.empty() || (text_command_line_edit_container != nullptr && text_command_line_edit_container->isVisible());
+        if (!current_widget_stack.empty()) {
+            QWidget* top = current_widget_stack.back();
+            if (top && top->isVisible()) {
+                return true;
+            }
+        }
+        if (text_command_line_edit_container != nullptr && text_command_line_edit_container->isVisible()) {
+            return true;
+        }
+        return false;
     }
+    void menu_nav_down();
+    void menu_nav_up();
+    void menu_nav_left();
+    void menu_nav_right();
+    void menu_nav_page_down();
+    void menu_nav_page_up();
+    void menu_nav_select();
+    void menu_nav_close();
     void handle_track_work();
     void handle_untrack_work();
     void handle_tracking_status();

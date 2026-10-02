@@ -1501,6 +1501,7 @@ BaseSelectorWidget::BaseSelectorWidget(QAbstractItemView* item_view, bool fuzzy,
     layout->addWidget(line_edit);
     layout->addWidget(abstract_item_view);
 
+    main_widget = parent;
     line_edit->installEventFilter(this);
     line_edit->setFocus();
 
@@ -1576,6 +1577,9 @@ std::optional<QModelIndex> BaseSelectorWidget::get_selected_index() {
         QModelIndex selected_index = selected_index_list.at(0);
         return selected_index;
     }
+    if (get_view()->currentIndex().isValid()) {
+        return get_view()->currentIndex();
+    }
     return {};
 }
 
@@ -1612,6 +1616,26 @@ bool BaseSelectorWidget::eventFilter(QObject* obj, QEvent* event) {
             QKeyEvent* key_event = static_cast<QKeyEvent*>(event);
             bool is_control_pressed = key_event->modifiers().testFlag(Qt::ControlModifier) || key_event->modifiers().testFlag(Qt::MetaModifier);
             bool is_alt_pressed = key_event->modifiers().testFlag(Qt::AltModifier);
+            bool is_shift_pressed = key_event->modifiers().testFlag(Qt::ShiftModifier);
+            bool is_meta_pressed = is_platform_meta_pressed(key_event);
+            bool is_invisible = key_event->text().size() == 0;
+
+            if (key_event->key() == Qt::Key_Escape) {
+                if (main_widget) {
+                    main_widget->pop_current_widget();
+                    return true;
+                }
+            }
+
+            if (main_widget && main_widget->input_handler && (is_invisible || is_alt_pressed || is_control_pressed)) {
+                std::unique_ptr<Command> command = main_widget->input_handler->get_menu_command(
+                    main_widget, key_event, is_shift_pressed, is_control_pressed, is_meta_pressed, is_alt_pressed);
+
+                if (command && command->is_menu_command()) {
+                    main_widget->handle_command_types(std::move(command), 1);
+                    return true;
+                }
+            }
 
             if (TOUCH_MODE) {
                 if (key_event->key() == Qt::Key_Back) {
@@ -1729,11 +1753,16 @@ void BaseSelectorWidget::simulate_move_down() {
         is_last = is_tree_view_index_last(tree_index, tree_view, true);
     }
     else{
-        is_last = get_view()->currentIndex().row() == get_view()->model()->rowCount() - 1;
+        int row_count = get_view()->model() ? get_view()->model()->rowCount() : 0;
+        is_last = (row_count > 0) && (get_view()->currentIndex().row() >= row_count - 1);
     }
 
     if (is_last){
-        get_view()->setCurrentIndex(get_view()->model()->index(0, 0));
+        QModelIndex first_idx = get_view()->model() ? get_view()->model()->index(0, 0) : QModelIndex();
+        if (first_idx.isValid()) {
+            get_view()->setCurrentIndex(first_idx);
+            get_view()->scrollTo(first_idx, QAbstractItemView::EnsureVisible);
+        }
     }
     else{
         QKeyEvent* move_down_event = new QKeyEvent(QEvent::Type::KeyPress, Qt::Key_Down, Qt::KeyboardModifier::NoModifier);
@@ -1760,16 +1789,30 @@ void BaseSelectorWidget::simulate_move_up() {
         is_first = is_tree_view_index_first(tree_index, tree_view);
     }
     else{
-        is_first = get_view()->currentIndex().row() == 0;
+        is_first = get_view()->currentIndex().row() <= 0;
     }
 
     if (is_first) {
-        get_view()->setCurrentIndex(get_last_tree_index(get_view()->model(), QModelIndex()));
+        if (dynamic_cast<QTreeView*>(get_view())) {
+            QModelIndex last_tree = get_last_tree_index(get_view()->model(), QModelIndex());
+            if (last_tree.isValid()) {
+                get_view()->setCurrentIndex(last_tree);
+                get_view()->scrollTo(last_tree, QAbstractItemView::EnsureVisible);
+            }
+        } else {
+            int last_row = get_view()->model() ? get_view()->model()->rowCount() - 1 : -1;
+            if (last_row >= 0) {
+                QModelIndex last_idx = get_view()->model()->index(last_row, 0);
+                get_view()->setCurrentIndex(last_idx);
+                get_view()->scrollTo(last_idx, QAbstractItemView::EnsureVisible);
+            }
+        }
     }
     else{
         QKeyEvent* move_up_event = new QKeyEvent(QEvent::Type::KeyPress, Qt::Key_Up, Qt::KeyboardModifier::NoModifier);
         QCoreApplication::postEvent(get_view(), move_up_event);
-    }}
+    }
+}
 
 void BaseSelectorWidget::simulate_move_left() {
     QKeyEvent* move_left_event = new QKeyEvent(QEvent::Type::KeyPress, Qt::Key_Left, Qt::KeyboardModifier::NoModifier);
@@ -1895,8 +1938,8 @@ void MyLineEdit::keyPressEvent(QKeyEvent* event) {
         std::unique_ptr<Command> command = main_widget->input_handler->get_menu_command(main_widget, event, is_shift_pressed, is_control_pressed, is_meta_pressed, is_alt_pressed);
 
         if (command && command->is_menu_command()) {
-            // this command will be handled later by our command manager so we ignore it here.
-            event->ignore();
+            main_widget->handle_command_types(std::move(command), 1);
+            event->accept();
             return;
         }
     }

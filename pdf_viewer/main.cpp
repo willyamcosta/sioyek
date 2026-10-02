@@ -893,8 +893,11 @@ int main(int argc, char* args[]) {
     NewFileChecker new_file_checker(PAPERS_FOLDER_PATH, main_widget);
     GamepadManager gamepad_manager([]() -> MainWidget* {
         QWidget* active = QApplication::activeWindow();
-        for (auto* w : windows) {
-            if (w == active) return w;
+        if (active) {
+            QWidget* top = active->window();
+            for (auto* w : windows) {
+                if (w == top || w == active) return w;
+            }
         }
         return windows.empty() ? nullptr : windows[0];
     });
