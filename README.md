@@ -97,6 +97,109 @@ floppy_token        <your-floppy-app-token>
 tracker_auto_notify 1
 ```
 
+## Gamepad & Controller support
+
+Full support for game controllers and gamepads (Xbox, PlayStation, standard Linux evdev/SDL gamepads).
+
+- **Strictly declarative (Zero defaults):** No buttons, axes, or stick directions have default bindings. Gamepad inputs do nothing unless explicitly mapped in `keys_user.config`.
+- **Supported tokens:**
+  - Face buttons: `<gamepad-a>`, `<gamepad-b>`, `<gamepad-x>`, `<gamepad-y>`
+  - Bumpers & Triggers: `<gamepad-lb>`, `<gamepad-rb>`, `<gamepad-lt>`, `<gamepad-rt>`
+  - D-Pad: `<gamepad-dpad-up>`, `<gamepad-dpad-down>`, `<gamepad-dpad-left>`, `<gamepad-dpad-right>`
+  - Center: `<gamepad-start>`, `<gamepad-select>`, `<gamepad-guide>`
+  - Stick clicks: `<gamepad-l3>`, `<gamepad-r3>`
+  - Stick directions: `<gamepad-ls-up>`, `<gamepad-ls-down>`, `<gamepad-ls-left>`, `<gamepad-ls-right>`, `<gamepad-rs-up>`, `<gamepad-rs-down>`, `<gamepad-rs-left>`, `<gamepad-rs-right>`
+  - Analog 2D sticks: `<gamepad-ls>`, `<gamepad-rs>`
+
+- **Menu navigation:**
+  Commands for menus, table of contents, bookmarks, and selectors: `menu_down`, `menu_up`, `menu_left`, `menu_right`, `menu_page_down`, `menu_page_up`, `menu_select`, `menu_close` (aliases `menu_cancel`, `menu_back`).
+
+  Supports modal syntax `[m]` to share buttons and sticks between menu navigation and document reading:
+  ```ini
+  [m]menu_down;[]smooth_scroll_down <gamepad-ls-down>
+  [m]menu_up;[]smooth_scroll_up     <gamepad-ls-up>
+  [m]menu_select;[]screen_down      <gamepad-a>
+  [m]menu_close;[]screen_up         <gamepad-b>
+  ```
+
+- **Analog smooth scroll bindings:**
+  Bind directional deflection or full 2D sticks:
+  ```ini
+  smooth_scroll_down  <gamepad-ls-down>
+  smooth_scroll_up    <gamepad-ls-up>
+  smooth_scroll_left  <gamepad-ls-left>
+  smooth_scroll_right <gamepad-ls-right>
+  # Or full 2D stick:
+  smooth_scroll       <gamepad-ls>
+  ```
+  Unbound directions and `noop` bindings never move the document.
+
+- **Options in `prefs_user.config`:**
+  ```ini
+  gamepad_enabled             1     # Enable/disable gamepad subsystem (default 1)
+  gamepad_deadzone            0.15  # Stick deadzone (0.0 - 1.0, default 0.15)
+  gamepad_analog_scroll_speed 1.0   # Speed multiplier for stick scrolling (default 1.0)
+  ```
+
+## Mass-Spring-Damper (MSD) smooth scrolling
+
+Continuous smooth scrolling engine using a second-order Mass-Spring-Damper physical model (matching Smoothfox / Firefox physics).
+
+- **High-refresh rate / Hz handling:**
+  Physics integration uses closed-form continuous analytical differential equations ($e^{-\omega_0 \Delta t}$) parameterized by exact monotonic elapsed time ($\Delta t$). It is mathematically frame-rate independent across 60Hz, 120Hz, 144Hz, 165Hz, and 240Hz monitors. During active scrolling, the render timer runs unthrottled (interval 0) to synchronize directly with OpenGL / VSync frame presentation.
+
+- **Recommended presets (from Smoothfox, copy to `prefs_user.config`):**
+
+  **Zen (tuned for 120Hz / 144Hz / 165Hz+ displays):**
+  ```ini
+  smooth_scroll_mode            1
+  smooth_scroll_speed           2.0
+  smooth_scroll_spring_constant 600.0
+  smooth_scroll_damping_ratio   1.0
+  ```
+
+  **Smooth (Firefox default MSD feel, 90Hz+):**
+  ```ini
+  smooth_scroll_mode            1
+  smooth_scroll_speed           3.0
+  smooth_scroll_spring_constant 1000.0
+  smooth_scroll_damping_ratio   1.0
+  ```
+
+  **Natural (Chrome-style glide, 120Hz+):**
+  ```ini
+  smooth_scroll_mode            1
+  smooth_scroll_speed           3.0
+  smooth_scroll_spring_constant 600.0
+  smooth_scroll_damping_ratio   1.0
+  ```
+
+- **Options in `prefs_user.config`:**
+  ```ini
+  smooth_scroll_mode            1      # Enable MSD smooth scrolling (default 0)
+  smooth_scroll_speed           3.0    # Distance multiplier per step / wheel tick (default 3.0)
+  smooth_scroll_spring_constant 600.0  # Spring constant (k): higher = snappier, lower = floatier glide (Smoothfox: 600-650)
+  smooth_scroll_damping_ratio   1.0    # Damping ratio (zeta): 1.0 = critical damping (zero bounce), < 1.0 = subtle bounce, > 1.0 = viscous glide
+  ```
+
+## Viewport screenshots, page export & favorite moments
+
+Fast export and clipping commands for saving panels, figures, or entire pages:
+
+- **Commands (bind in `keys_user.config` or command palette):**
+  ```
+  screenshot_view       # Capture current visible viewport to an image file
+  screenshot_page       # Save clean full-res image of current page or spread
+  toggle_favorite       # Toggle favorite moment bookmark for current page
+  open_favorites        # Open saved favorite moments list
+  ```
+
+- **Options in `prefs_user.config`:**
+  ```ini
+  screenshot_directory /path/to/screenshots   # Custom folder for screenshots and exported pages (default: system Pictures)
+  page_export_scale    2.0                    # Resolution scale multiplier for page exports (default 2.0)
+  ```
+
 ## Nix packaging
 
 A `flake.nix` / `package.nix` build is included. It builds sioyek against a WebP-patched mupdf, so both standalone and CBZ WebP work out of the box:
