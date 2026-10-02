@@ -5,6 +5,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <chrono>
 #include <functional>
 #include <algorithm>
 #include <qobject.h>
@@ -39,6 +40,8 @@ enum SioyekGamepadKey {
     Key_Gamepad_RS_Down,
     Key_Gamepad_RS_Left,
     Key_Gamepad_RS_Right,
+    Key_Gamepad_LS,
+    Key_Gamepad_RS,
     Key_Gamepad_Max
 };
 
@@ -68,23 +71,23 @@ private:
     std::atomic<float> axis_lt{0.0f};
     std::atomic<float> axis_rt{0.0f};
 
-    // Threshold state tracking for discrete button triggers
+    // Threshold state tracking for discrete triggers
     bool lt_pressed = false;
     bool rt_pressed = false;
-    bool dpad_left_pressed = false;
-    bool dpad_right_pressed = false;
-    bool dpad_up_pressed = false;
-    bool dpad_down_pressed = false;
 
-    bool ls_up_pressed = false;
-    bool ls_down_pressed = false;
-    bool ls_left_pressed = false;
-    bool ls_right_pressed = false;
+    struct DirectionRepeatState {
+        int active_key = 0;
+        bool is_pressed = false;
+        std::chrono::steady_clock::time_point press_time;
+        std::chrono::steady_clock::time_point last_repeat_time;
+    };
 
-    bool rs_up_pressed = false;
-    bool rs_down_pressed = false;
-    bool rs_left_pressed = false;
-    bool rs_right_pressed = false;
+    DirectionRepeatState ls_x_state;
+    DirectionRepeatState ls_y_state;
+    DirectionRepeatState rs_x_state;
+    DirectionRepeatState rs_y_state;
+    DirectionRepeatState dpad_x_state;
+    DirectionRepeatState dpad_y_state;
 
     QTimer analog_timer;
 
@@ -93,7 +96,9 @@ private:
     void close_all_devices();
     void process_button_event(int button_index, bool pressed);
     void process_axis_event(int axis_index, int value);
-    void dispatch_key(int key_code, bool pressed);
+    void update_axis_direction(DirectionRepeatState& state, int neg_key, int pos_key, float norm, float deadzone);
+    void check_auto_repeat(DirectionRepeatState& state, const std::chrono::steady_clock::time_point& now);
+    void dispatch_key(int key_code, bool pressed, bool auto_repeat = false);
 
 private slots:
     void on_analog_tick();
