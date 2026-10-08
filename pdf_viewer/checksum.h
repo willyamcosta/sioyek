@@ -6,11 +6,13 @@
 #include <qfile.h>
 #include <utility>
 #include <optional>
+#include <mutex>
 
 std::string compute_checksum(const QString& file_name, QCryptographicHash::Algorithm hash_algorithm);
 
 class CachedChecksummer {
 private:
+    mutable std::mutex mutex;
     std::unordered_map<std::wstring, std::string> cached_checksums;
     std::unordered_map<std::string, std::vector<std::wstring>> cached_paths;
 

@@ -977,7 +977,12 @@ unsigned int Document::get_milies_since_last_edit_time() {
 }
 
 Document::~Document() {
-    if (document_indexing_thread.has_value()) {
+    is_page_dimensions_loading_cancelled = true;
+    if (page_dimensions_loading_thread.has_value() && page_dimensions_loading_thread->joinable()) {
+        page_dimensions_loading_thread.value().join();
+    }
+
+    if (document_indexing_thread.has_value() && document_indexing_thread->joinable()) {
         stop_indexing();
         document_indexing_thread.value().join();
     }
@@ -1122,6 +1127,12 @@ void Document::load_page_dimensions(bool force_load_now) {
         }
     }
 
+    if (this->page_dimensions_loading_thread.has_value() && this->page_dimensions_loading_thread->joinable()) {
+        is_page_dimensions_loading_cancelled = true;
+        this->page_dimensions_loading_thread.value().join();
+    }
+    is_page_dimensions_loading_cancelled = false;
+
     auto load_page_dimensions_function = [this, n, force_load_now]() {
         std::vector<float> accum_page_heights_;
         std::vector<float> page_heights_;
@@ -1142,6 +1153,9 @@ void Document::load_page_dimensions(bool force_load_now) {
 
             float acc_height_ = 0.0f;
             for (int i = 0; i < n; i++) {
+                if (is_page_dimensions_loading_cancelled) {
+                    break;
+                }
                 fz_page* page = fz_load_page(context_, doc_, i);
                 fz_page_label(context_, page, label_buffer, N);
                 page_labels_.push_back(utf8_decode(label_buffer));
@@ -1161,23 +1175,24 @@ void Document::load_page_dimensions(bool force_load_now) {
                 fz_drop_page(context_, page);
             }
 
+            if (!is_page_dimensions_loading_cancelled) {
+                page_dims_mutex.lock();
 
-            page_dims_mutex.lock();
+                page_heights = std::move(page_heights_);
+                accum_page_heights = std::move(accum_page_heights_);
+                page_widths = std::move(page_widths_);
+                page_labels = std::move(page_labels_);
 
-            page_heights = std::move(page_heights_);
-            accum_page_heights = std::move(accum_page_heights_);
-            page_widths = std::move(page_widths_);
-            page_labels = std::move(page_labels_);
+                if (invalid_flag_pointer) {
+                    *invalid_flag_pointer = true;
+                }
+                page_dims_mutex.unlock();
 
-            if (invalid_flag_pointer) {
-                *invalid_flag_pointer = true;
-            }
-            page_dims_mutex.unlock();
-
-            if (!is_auxiliary) {
-                fill_highlight_rects(context_, doc_);
-                detected_paper_name = detect_paper_name(context_, doc_);
-                //db_manager->set_actual_document_name(get_checksum(), detected_paper_name);
+                if (!is_auxiliary) {
+                    fill_highlight_rects(context_, doc_);
+                    detected_paper_name = detect_paper_name(context_, doc_);
+                    //db_manager->set_actual_document_name(get_checksum(), detected_paper_name);
+                }
             }
 
             fz_drop_document(context_, doc_);
@@ -1188,9 +1203,11 @@ void Document::load_page_dimensions(bool force_load_now) {
 
         fz_drop_context(context_);
 
-        are_highlights_loaded = true;
-        if (invalid_flag_pointer) {
-            *invalid_flag_pointer = true;
+        if (!is_page_dimensions_loading_cancelled) {
+            are_highlights_loaded = true;
+            if (invalid_flag_pointer) {
+                *invalid_flag_pointer = true;
+            }
         }
 
     };
@@ -1199,8 +1216,7 @@ void Document::load_page_dimensions(bool force_load_now) {
         load_page_dimensions_function();
     }
     else {
-        auto background_page_dimensions_loading_thread = std::thread(load_page_dimensions_function);
-        background_page_dimensions_loading_thread.detach();
+        this->page_dimensions_loading_thread = std::thread(load_page_dimensions_function);
     }
     load_drawings_async();
 }
@@ -1407,8 +1423,8 @@ int Document::get_offset_page_number(float y_offset) {
 void Document::index_document(bool* invalid_flag) {
     int n = num_pages();
 
-    if (this->document_indexing_thread.has_value()) {
-        // if we are already indexing figures, we should wait for the previous thread to finish
+    if (this->document_indexing_thread.has_value() && this->document_indexing_thread->joinable()) {
+        stop_indexing();
         this->document_indexing_thread.value().join();
     }
 

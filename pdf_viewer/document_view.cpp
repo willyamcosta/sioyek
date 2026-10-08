@@ -871,7 +871,7 @@ void DocumentView::rebuild_continuous_document_stack(bool force) {
             }
             else {
                 document = document_manager->get_document(file_path);
-                if (!document->open(nullptr, true, "", false, true /* is_auxiliary */)) {
+                if (!document->open(invalid_flag_pointer, false, "", false, true /* is_auxiliary */)) {
                     continue;
                 }
             }
@@ -983,11 +983,14 @@ int DocumentView::get_center_virtual_page() {
     return static_cast<int>(cached_virtual_rects.size()) - 1;
 }
 
-void DocumentView::set_current_subdocument(Document* doc) {
+void DocumentView::set_current_subdocument(Document* doc, bool* invalid_flag) {
     if (!doc || doc == current_document) return;
 
+    if (invalid_flag) {
+        invalid_flag_pointer = invalid_flag;
+    }
     current_document = doc;
-    current_document->promote_to_active();
+    current_document->promote_to_active(invalid_flag_pointer);
     rebuild_continuous_document_stack();
 }
 
@@ -1059,6 +1062,7 @@ void DocumentView::open_document(const std::wstring& doc_path,
     bool load_prev_state,
     std::optional<OpenedBookState> prev_state,
     bool force_load_dimensions) {
+    this->invalid_flag_pointer = invalid_flag;
     last_opened_file_path = doc_path;
 
     was_set_to_null = false;
@@ -1322,7 +1326,23 @@ void DocumentView::persist(bool persist_drawings) {
         abs_offset.x = 0;
     }
 
-    db_manager->update_book(current_document->get_checksum(), zoom_level, abs_offset.x, abs_offset.y, current_document->detect_paper_name());
+    auto checksum = current_document->get_checksum_fast();
+    if (checksum) {
+        db_manager->update_book(checksum.value(), zoom_level, abs_offset.x, abs_offset.y, current_document->detect_paper_name());
+    }
+    else {
+        std::wstring path = current_document->get_path();
+        CachedChecksummer* cs = checksummer;
+        DatabaseManager* db = db_manager;
+        float z = zoom_level;
+        float ox = abs_offset.x;
+        float oy = abs_offset.y;
+        std::wstring paper_name = current_document->detect_paper_name();
+        std::thread([cs, db, path, z, ox, oy, paper_name]() {
+            std::string c = cs->get_checksum(path);
+            db->update_book(c, z, ox, oy, paper_name);
+        }).detach();
+    }
     if (persist_drawings) {
         current_document->persist_drawings();
         current_document->persist_annotations();

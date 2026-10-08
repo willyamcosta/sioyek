@@ -6,19 +6,19 @@ std::string compute_checksum(const QString& file_name, QCryptographicHash::Algor
 {
     QFile infile(file_name);
     qint64 file_size = infile.size();
-    const qint64 buffer_size = 10240;
+    const qint64 buffer_size = 1048576; // 1 MB buffer
 
     if (infile.open(QIODevice::ReadOnly))
     {
-        char buffer[buffer_size];
+        std::vector<char> buffer(buffer_size);
         int bytes_read;
         int read_size = qMin(file_size, buffer_size);
 
         QCryptographicHash hash(hash_algorithm);
-        while (read_size > 0 && (bytes_read = infile.read(buffer, read_size)) > 0)
+        while (read_size > 0 && (bytes_read = infile.read(buffer.data(), read_size)) > 0)
         {
             file_size -= bytes_read;
-            hash.addData(buffer, bytes_read);
+            hash.addData(buffer.data(), bytes_read);
             read_size = qMin(file_size, buffer_size);
         }
 
@@ -39,28 +39,42 @@ CachedChecksummer::CachedChecksummer(const std::vector<std::pair<std::wstring, s
 }
 
 std::optional<std::string> CachedChecksummer::get_checksum_fast(std::wstring file_path) {
-    // return the checksum only if it is alreay precomputed in cache
-    if (cached_checksums.find(file_path) != cached_checksums.end()) {
-        return cached_checksums[file_path];
+    std::lock_guard<std::mutex> lock(mutex);
+    auto it = cached_checksums.find(file_path);
+    if (it != cached_checksums.end()) {
+        return it->second;
     }
     return {};
 }
 
 std::string CachedChecksummer::get_checksum(std::wstring file_path) {
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = cached_checksums.find(file_path);
+        if (it != cached_checksums.end()) {
+            return it->second;
+        }
+    }
 
-    auto cached_checksum = get_checksum_fast(file_path);
+    std::string checksum = compute_checksum(QString::fromStdWString(file_path), QCryptographicHash::Md5);
 
-    if (!cached_checksum) {
-        std::string checksum = compute_checksum(QString::fromStdWString(file_path), QCryptographicHash::Md5);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
         cached_checksums[file_path] = checksum;
         cached_paths[checksum].push_back(file_path);
+        return checksum;
     }
-    return cached_checksums[file_path];
-
 }
 
 std::optional<std::wstring> CachedChecksummer::get_path(std::string checksum) {
-    const std::vector<std::wstring> paths = cached_paths[checksum];
+    std::vector<std::wstring> paths;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = cached_paths.find(checksum);
+        if (it != cached_paths.end()) {
+            paths = it->second;
+        }
+    }
 
     for (const auto& path_string : paths) {
         if (QFile::exists(QString::fromStdWString(path_string))) {
@@ -71,8 +85,10 @@ std::optional<std::wstring> CachedChecksummer::get_path(std::string checksum) {
 }
 
 int CachedChecksummer::num_docs_with_checksum(std::string checksum) {
-    if (cached_paths.find(checksum) != cached_paths.end()) {
-        return cached_paths[checksum].size();
+    std::lock_guard<std::mutex> lock(mutex);
+    auto it = cached_paths.find(checksum);
+    if (it != cached_paths.end()) {
+        return static_cast<int>(it->second.size());
     }
     return 0;
 }

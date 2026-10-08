@@ -5,6 +5,7 @@
 #include <iostream>
 #include <thread>
 #include <mutex>
+#include <atomic>
 #include <map>
 #include <unordered_map>
 #include <deque>
@@ -143,6 +144,8 @@ private:
 
     std::mutex document_indexing_mutex;
     std::optional<std::thread> document_indexing_thread = {};
+    std::optional<std::thread> page_dimensions_loading_thread = {};
+    std::atomic<bool> is_page_dimensions_loading_cancelled = false;
     bool is_document_indexing_required = true;
     bool is_indexing = false;
     bool are_highlights_loaded = false;

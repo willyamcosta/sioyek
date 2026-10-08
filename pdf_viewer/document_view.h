@@ -49,6 +49,7 @@ protected:
     std::wstring continuous_document_stack_anchor_path;
     bool continuous_document_stack_dirty = true;
     bool two_page_mode = false;
+    bool* invalid_flag_pointer = nullptr;
 
     // absolute rect of the current ruler if this is {} then ruler_pos is used instead
     std::optional<AbsoluteRect> ruler_rect;
@@ -149,7 +150,7 @@ public:
     std::wstring get_document_path_for_page(int page_number);
     float get_current_document_stack_start_y();
     int get_center_virtual_page();
-    void set_current_subdocument(Document* doc);
+    void set_current_subdocument(Document* doc, bool* invalid_flag = nullptr);
     std::vector<Document*> get_continuous_stack_documents();
     NormalizedWindowRect absolute_to_window_rect(AbsoluteRect doc_rect);
     NormalizedWindowPos document_to_window_pos(DocumentPos pos);
