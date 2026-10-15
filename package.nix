@@ -81,6 +81,7 @@ stdenv.mkDerivation {
       ''
         install -Dm644 tutorial.pdf $out/share/tutorial.pdf
         cp -r pdf_viewer/shaders $out/share/
+        install -Dm644 -t $out/share/ pdf_viewer/{keys,prefs}.config
         install -Dm644 -t $out/etc/ pdf_viewer/{keys,prefs}.config
         installManPage resources/sioyek.1
       '';
