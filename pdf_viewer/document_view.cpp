@@ -887,7 +887,8 @@ void DocumentView::rebuild_continuous_document_stack(bool force) {
     same_width_mode_first_page_width = {};
 
     float cum_offset = 0;
-    for (const ContinuousDocumentPage& page_entry : continuous_document_pages) {
+    for (size_t i = 0; i < continuous_document_pages.size(); i++) {
+        const ContinuousDocumentPage& page_entry = continuous_document_pages[i];
         if (!page_entry.document) continue;
 
         float page_width = page_entry.document->get_page_width(page_entry.page);
@@ -901,7 +902,20 @@ void DocumentView::rebuild_continuous_document_stack(bool force) {
         page_rect.y1 = cum_offset + page_height;
         cached_virtual_rects.push_back(page_rect);
 
-        cum_offset += page_height + page_space_y;
+        bool is_last_page_of_doc = true;
+        for (size_t next_idx = i + 1; next_idx < continuous_document_pages.size(); next_idx++) {
+            if (continuous_document_pages[next_idx].document) {
+                is_last_page_of_doc = (continuous_document_pages[next_idx].document != page_entry.document);
+                break;
+            }
+        }
+
+        if (REAL_PAGE_SEPARATION || is_last_page_of_doc) {
+            cum_offset += page_height + page_space_y;
+        }
+        else {
+            cum_offset += page_height;
+        }
     }
 
     min_virtual_x = FLT_MAX;
@@ -2562,7 +2576,7 @@ float DocumentView::get_page_space_x() {
 }
 
 float DocumentView::get_page_space_y() {
-    return page_space_x;
+    return page_space_y;
 }
 
 bool DocumentView::fast_coordinates() {
