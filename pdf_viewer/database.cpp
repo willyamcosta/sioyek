@@ -1064,6 +1064,7 @@ bool DatabaseManager::delete_opened_book(const std::string& book_path) {
 }
 
 bool DatabaseManager::delete_document_hash(const std::string& checksum) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << "DELETE FROM document_hash where hash='" << esc(checksum) << "';";
     char* error_message = nullptr;
@@ -2170,6 +2171,7 @@ bool DatabaseManager::delete_annotation(Annotation* annot) {
 }
 
 bool DatabaseManager::create_tracked_works_table() {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     const char* create_sql = "CREATE TABLE IF NOT EXISTS tracked_works ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "series_path TEXT UNIQUE,"
@@ -2219,6 +2221,7 @@ static int tracked_work_select_callback(void* res_ptr, int argc, char** argv, ch
 }
 
 bool DatabaseManager::select_tracked_work(const std::wstring& series_path, TrackedWork& out_work) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     out_work = TrackedWork();
     std::wstringstream ss;
     ss << L"SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter, last_read_file, last_read_time, reading_status, total_volumes, total_chapters FROM tracked_works WHERE series_path='" << esc(series_path) << L"';";
@@ -2255,6 +2258,7 @@ static int all_tracked_works_callback(void* res_ptr, int argc, char** argv, char
 }
 
 bool DatabaseManager::select_all_tracked_works(std::vector<TrackedWork>& out_works) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     out_works.clear();
     const char* sql = "SELECT id, series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter, last_read_file, last_read_time, reading_status, total_volumes, total_chapters "
                       "FROM tracked_works "
@@ -2275,6 +2279,7 @@ bool DatabaseManager::select_all_tracked_works(std::vector<TrackedWork>& out_wor
 }
 
 bool DatabaseManager::save_tracked_work(const TrackedWork& work) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"INSERT INTO tracked_works (series_path, title, anilist_id, anilist_title, floppy_id, cover_url, is_tracking, last_volume, last_chapter, last_read_file, last_read_time, reading_status, total_volumes, total_chapters) "
        << L"VALUES ('" << esc(work.series_path.toStdWString()) << L"', "
@@ -2311,6 +2316,7 @@ bool DatabaseManager::save_tracked_work(const TrackedWork& work) {
 }
 
 bool DatabaseManager::set_work_tracking_status(const std::wstring& series_path, bool is_tracking) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"UPDATE tracked_works SET is_tracking=" << (is_tracking ? 1 : 0)
        << L" WHERE series_path='" << esc(series_path) << L"';";
@@ -2320,6 +2326,7 @@ bool DatabaseManager::set_work_tracking_status(const std::wstring& series_path, 
 }
 
 bool DatabaseManager::update_work_progress(const std::wstring& series_path, int volume, float chapter) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"UPDATE tracked_works SET last_volume=" << volume
        << L", last_chapter=" << chapter
@@ -2330,6 +2337,7 @@ bool DatabaseManager::update_work_progress(const std::wstring& series_path, int 
 }
 
 bool DatabaseManager::update_work_cover(const std::wstring& series_path, const std::wstring& cover_url) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"UPDATE tracked_works SET cover_url='" << esc(cover_url)
        << L"' WHERE series_path='" << esc(series_path) << L"';";
@@ -2339,6 +2347,7 @@ bool DatabaseManager::update_work_cover(const std::wstring& series_path, const s
 }
 
 bool DatabaseManager::update_work_last_read(const std::wstring& series_path, const std::wstring& file_path, qint64 timestamp) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"UPDATE tracked_works SET last_read_file='" << esc(file_path)
        << L"', last_read_time=" << timestamp
@@ -2349,6 +2358,7 @@ bool DatabaseManager::update_work_last_read(const std::wstring& series_path, con
 }
 
 bool DatabaseManager::update_work_reading_status(const std::wstring& series_path, const std::wstring& status) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"UPDATE tracked_works SET reading_status='" << esc(status)
        << L"' WHERE series_path='" << esc(series_path) << L"';";
@@ -2358,6 +2368,7 @@ bool DatabaseManager::update_work_reading_status(const std::wstring& series_path
 }
 
 bool DatabaseManager::update_work_metadata(const std::wstring& series_path, const std::wstring& cover_url, int total_vols, int total_chs) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"UPDATE tracked_works SET "
        << L"cover_url=CASE WHEN '" << esc(cover_url) << L"' != '' THEN '" << esc(cover_url) << L"' ELSE cover_url END, "
@@ -2370,6 +2381,7 @@ bool DatabaseManager::update_work_metadata(const std::wstring& series_path, cons
 }
 
 bool DatabaseManager::delete_tracked_work(const std::wstring& series_path) {
+    std::lock_guard<std::recursive_mutex> lock(db_mutex);
     std::wstringstream ss;
     ss << L"DELETE FROM tracked_works WHERE series_path='" << esc(series_path) << L"';";
     char* error_message = nullptr;
