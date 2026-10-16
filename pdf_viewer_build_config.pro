@@ -106,6 +106,7 @@ HEADERS += pdf_viewer/book.h \
            pdf_viewer/OpenWithApplication.h \
            pdf_viewer/tracker.h \
            pdf_viewer/gamepad.h \
+           pdf_viewer/regression_tests.h \
            fzf/fzf.h
 
 
@@ -183,7 +184,7 @@ unix:!mac:!android {
     } else {
         DEFINES += NON_PORTABLE
         DEFINES += LINUX_STANDARD_PATHS
-        LIBS += -ldl -lmupdf -lmupdf-third -lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lmujs -lopenjp2 -lwebp -lz
+        LIBS += -ldl -lmupdf -lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lmujs -lopenjp2 -lwebp -lz
     }
 
     isEmpty(PREFIX){

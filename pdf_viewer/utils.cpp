@@ -1934,6 +1934,9 @@ QCommandLineParser* get_command_line_parser() {
     version_option.setDescription("Print sioyek version.");
     parser->addOption(version_option);
 
+    QCommandLineOption run_tests_option("run-tests", "Run regression test suite and exit.");
+    parser->addOption(run_tests_option);
+
 
     QCommandLineOption page_option("page", "Which page to open.", "page");
     parser->addOption(page_option);

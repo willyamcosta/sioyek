@@ -72,6 +72,7 @@
 #include "OpenWithApplication.h"
 #include "new_file_checker.h"
 #include "gamepad.h"
+#include "regression_tests.h"
 
 #define FTS_FUZZY_MATCH_IMPLEMENTATION
 #include "fts_fuzzy_match.h"
@@ -746,6 +747,7 @@ int main(int argc, char* args[]) {
     qmlRegisterType<MySortFilterProxyModel>("MySortFilterProxyModel", 1, 0, "MySortFilterProxyModel");
     QCommandLineParser* parser = get_command_line_parser();
     parser->process(app.arguments());
+    bool should_run_tests = parser->isSet("run-tests");
 
     configure_paths();
     verify_config_paths();
@@ -875,6 +877,15 @@ int main(int argc, char* args[]) {
     CachedChecksummer checksummer(&prev_path_hash_pairs);
 
     DocumentManager document_manager(mupdf_context, &db_manager, &checksummer);
+
+    if (should_run_tests) {
+        DocumentView test_document_view(&db_manager, &document_manager, &checksummer);
+        int test_result = RegressionTests::run_all_tests(&db_manager, &input_handler, &test_document_view);
+        quit = true;
+        pdf_renderer->join_threads();
+        delete pdf_renderer;
+        return test_result;
+    }
 
     QFileSystemWatcher pref_file_watcher;
     add_paths_to_file_system_watcher(pref_file_watcher, default_config_path, user_config_paths);

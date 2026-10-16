@@ -35,6 +35,13 @@
         }
       );
 
+      checks = forEachSupportedSystem (
+        { pkgs, system }:
+        {
+          sioyek = self.packages.${system}.default;
+        }
+      );
+
       devShells = forEachSupportedSystem (
         { pkgs, system }:
         {

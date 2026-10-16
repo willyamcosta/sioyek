@@ -53,14 +53,16 @@ stdenv.mkDerivation {
     qt6.wrapQtAppsHook
   ];
 
+  enableParallelBuilding = true;
+
   qmakeFlags = lib.optionals stdenv.hostPlatform.isDarwin [
     "CONFIG+=non_portable"
   ];
 
   postPatch = ''
     substituteInPlace pdf_viewer_build_config.pro \
-      --replace-fail "-lmupdf-threads" "-lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lopenjp2 -lwebp" \
-      --replace-fail "-lmupdf-third" ""
+      --replace-warn "-lmupdf-threads" "-lgumbo -lharfbuzz -lfreetype -ljbig2dec -ljpeg -lopenjp2 -lwebp" \
+      --replace-warn "-lmupdf-third" ""
 
     substituteInPlace pdf_viewer/main.cpp \
       --replace-fail "/usr/share/sioyek" "$out/share" \
@@ -85,6 +87,15 @@ stdenv.mkDerivation {
         install -Dm644 -t $out/etc/ pdf_viewer/{keys,prefs}.config
         installManPage resources/sioyek.1
       '';
+
+  doInstallCheck = stdenv.hostPlatform.isLinux;
+
+  installCheckPhase = ''
+    runHook preInstallCheck
+    export QT_QPA_PLATFORM=offscreen
+    bash tests/smoke_test.sh $out
+    runHook postInstallCheck
+  '';
 
   passthru.updateScript = unstableGitUpdater {
     branch = "development";
